@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Arkyva.Metadata.SqlServer/Arkyva.Metadata.SqlServer.csproj" />
+    <ProjectReference Include="../../src/Arkyva/Arkyva.csproj" />
     <None Include="../../src/Arkyva.Metadata.SqlServer/Scripts/*.sql" Link="Scripts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

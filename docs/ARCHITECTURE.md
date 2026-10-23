@@ -2,7 +2,7 @@
 
 ## Alcance y dependencias
 
-Las tres bibliotecas usan `netstandard2.0`. Core define los contratos y modelos,
+Las cuatro bibliotecas usan `netstandard2.0` (incluido el proyecto de composición Arkyva de la Fase 6). Core define los contratos y modelos,
 sin referencias a los proveedores. FileSystem y SqlServer referencian unicamente
 Core, nunca entre si. FileSystem implementa el proveedor físico desde la Fase 2.
 SqlServer implementa persistencia ADO.NET desde la Fase 3; ArkyvaService los coordina mediante sus interfaces desde la Fase 4, sin
@@ -78,8 +78,8 @@ dotnet build Arkyva.sln --configuration Release
 El proyecto net472 referencia las tres bibliotecas y permite comprobar su consumo.
 Las pruebas unitarias del servicio existen desde la Fase 4; la recuperación manual tiene pruebas desde la Fase 5; la integración SQL preparada en la Fase 3 requiere un servidor de pruebas;
 no se conectan bases de datos ni se realizan operaciones de archivos en estas pruebas.
-La aplicacion de ejemplo, API fluida y publicación de paquetes NuGet quedan para fases
-posteriores. SPECIFICATION.md permanece sin cambios.
+La aplicación de ejemplo y API fluida se añaden en la Fase 6; la publicación NuGet
+queda para una fase posterior. SPECIFICATION.md permanece sin cambios.
 
 ## Resultado de verificacion de la Fase 1
 
@@ -186,3 +186,40 @@ Es una limitación intencional permitida por el alcance conservador, no un limpi
 seguro implementado. El escritor conserva la limpieza de su propio temporal.
 
 No se añadieron dependencias, tareas programadas ni procesos. Fase 6 no implementada.
+
+## Fase 6: composición y aplicación consumidora
+
+Se añade src/Arkyva (netstandard2.0), con ArkyvaBuilder. El proyecto referencia Core,
+Storage.FileSystem y Metadata.SqlServer. Core mantiene su independencia: no se le
+agregan referencias a proveedores, System.Configuration ni System.Web.
+
+ArkyvaBuilder.Create().UseSqlServer(...).UseFileSystem(...).Build() devuelve el
+IArkyvaService existente. Sus campos son readonly y cada Use devuelve otro builder;
+no hay estado global mutable. El constructor del repositorio valida SQL sin abrir
+conexión. Build verifica configuraciones faltantes y crea el proveedor FileSystem,
+que puede crear su carpeta base. No comprueba conectividad ni aplica migraciones.
+
+Cada Build construye proveedores y servicio nuevos. El servicio puede reutilizarse
+concurrentemente para una configuración; no tiene handles persistentes ni requiere
+IDisposable. Las descargas siguen siendo desechables. La composición manual y los
+contenedores existentes pueden registrar IArkyvaService por instancia, sin imponer
+un singleton global ni una dependencia de DI.
+
+samples/Arkyva.Samples.NetFramework es una consola net472 que referencia solo el
+proyecto de composición; lee App.config o variables de entorno y demuestra las
+seis operaciones. AutoGenerateBindingRedirects genera su configuración de salida.
+El modo --check-config permite comprobar construcción/carga de ensamblados sin SQL,
+y declara explícitamente que no probó conectividad ni contenido.
+
+Arkyva.ConfigurationTests cubre configuración sin servidor. La integración E2E se
+incorpora al runner SQL existente, reutilizando su base única y una carpeta temporal
+nueva; no se duplica la infraestructura de creación/eliminación de bases. Si no hay
+conexión de pruebas se informa SKIP. No hay cambios en contratos, servicio,
+proveedores ni scripts SQL. Véase [GETTING_STARTED.md](GETTING_STARTED.md) para
+Web.config, IIS, SMB, ejemplo y límites de la compatibilidad comprobada.
+
+Verificación Fase 6: once proyectos compilados en Release sin errores/advertencias;
+11 pruebas de configuración satisfactorias en net472 y suites anteriores exitosas.
+La consola carga configuración desde entorno y App.config en el runtime disponible.
+La integración SQL/E2E no se ejecutó sin conexión de pruebas; no se afirma haber
+validado IIS, SMB real ni una instalación aislada del runtime 4.7.2 exacto.

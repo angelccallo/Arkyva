@@ -3,12 +3,37 @@ Lightweight, extensible file storage library for .NET.
 
 ## Estado
 
-Fase 5: servicio principal, proveedores FileSystem/SQL Server y recuperación manual
-verificada con SHA-256, DryRun y concurrencia optimista. Configuración fluida pendiente.
+Fase 6: configuración fluida, servicio principal, proveedores FileSystem/SQL Server,
+recuperación manual y ejemplo .NET Framework 4.7.2.
 Las bibliotecas utilizan .NET Standard 2.0, compatible con .NET Framework 4.7.2.
+
+Referencia `src/Arkyva/Arkyva.csproj` desde la aplicación; el builder compone los proveedores:
+
+```csharp
+using System;
+using System.IO;
+using Arkyva;
+
+var arkyva = ArkyvaBuilder.Create()
+    .UseSqlServer(connectionString)
+    .UseFileSystem(storagePath)
+    .Build();
+
+Guid id;
+using (var input = File.OpenRead(inputPath))
+    id = await arkyva.UploadAsync(input, "documento.pdf");
+using (var file = await arkyva.DownloadAsync(id))
+using (var output = File.Create(outputPath))
+    await file.Content.CopyToAsync(output);
+```
+
+Preparar SQL V001-V004 previamente. Build puede crear la carpeta; no conecta a SQL
+ni instala el esquema. Ver [inicio rápido](docs/GETTING_STARTED.md) para configuración,
+Web.config, ejemplo net472, ciclo de vida y permisos. NuGet todavía no está publicado.
 
 ```powershell
 dotnet build Arkyva.sln --configuration Release
+& ./tests/Arkyva.ConfigurationTests/bin/Release/net472/Arkyva.ConfigurationTests.exe
 & ./tests/Arkyva.RecoveryTests/bin/Release/net472/Arkyva.RecoveryTests.exe
 & ./tests/Arkyva.ServiceTests/bin/Release/net472/Arkyva.ServiceTests.exe
 & ./tests/Arkyva.ContractTests/bin/Release/net472/Arkyva.ContractTests.exe

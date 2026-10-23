@@ -1,5 +1,8 @@
 using System;
 using System.Data;
+using System.Security.Cryptography;
+using Arkyva;
+using Arkyva.Core.Exceptions;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -26,7 +29,7 @@ internal static class Program
         string configured = Environment.GetEnvironmentVariable("ARKYVA_SQL_TEST_CONNECTION");
         if (string.IsNullOrWhiteSpace(configured))
         {
-            Console.WriteLine("SKIP SQL integration: ARKYVA_SQL_TEST_CONNECTION is not configured. No SQL Server operations were executed.");
+            Console.WriteLine("SKIP SQL repository and builder end-to-end integration: ARKYVA_SQL_TEST_CONNECTION is not configured. No SQL Server operations were executed.");
             return;
         }
         await Integration(configured);
@@ -117,6 +120,7 @@ internal static class Program
                                 if (!string.IsNullOrWhiteSpace(batch)) await Execute(databaseConnection, batch);
                     checks++; Console.WriteLine("PASS: Versioned scripts and repeated installation");
                     await RepositoryChecks(builder.ConnectionString, databaseConnection);
+                    await EndToEndChecks(builder.ConnectionString);
                 }
             }
             finally
@@ -233,6 +237,64 @@ internal static class Program
         await Throws<SqlException>(() => Execute(sql, "INSERT INTO arkyva.Files (FileId,OriginalName,SizeBytes,ProviderId,StorageKey,Status) VALUES (NEWID(), N'x', -1, N'p', N'k', 'Pending');"));
         await Throws<SqlException>(() => Execute(sql, "INSERT INTO arkyva.Files (FileId,OriginalName,SizeBytes,ProviderId,StorageKey,Status) VALUES (NEWID(), N'x', 1, N'p', N'k', 'Deleted');"));
         await Throws<SqlException>(() => Execute(sql, "INSERT INTO arkyva.Files (FileId,OriginalName,SizeBytes,ProviderId,StorageKey,Status) VALUES (NEWID(), N'x', 1, N'p', N'k', 'Active ');"));
+    }
+
+    private static async Task EndToEndChecks(string connectionString)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "Arkyva-e2e-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var service = ArkyvaBuilder.Create().UseSqlServer(connectionString).UseFileSystem(root).Build();
+            var repository = new SqlServerMetadataRepository(connectionString);
+            byte[] payload = Enumerable.Range(0, 8193).Select(i => (byte)(i % 251)).ToArray();
+            Guid id;
+            using (var input = new MemoryStream(payload)) id = await service.UploadAsync(input, "roundtrip.bin");
+            FileMetadata stored = await repository.GetAsync(id);
+            string expectedHash;
+            using (var hash = SHA256.Create()) expectedHash = BitConverter.ToString(hash.ComputeHash(payload)).Replace("-", "").ToLowerInvariant();
+            Check(stored.Status == FileStatus.Active && stored.SizeBytes == payload.Length && stored.CompletionSha256 == expectedHash && stored.Revision == 2,
+                "E2E builder upload persisted Active size/hash/revision in real SQL Server");
+            string[] physical = Directory.GetFiles(root, "*.bin", SearchOption.AllDirectories);
+            Check(physical.Length == 1 && File.ReadAllBytes(physical[0]).SequenceEqual(payload), "E2E FileSystem contains exact bytes");
+            using (FileContent content = await service.DownloadAsync(id))
+            using (var copy = new MemoryStream())
+            {
+                await content.Content.CopyToAsync(copy);
+                Check(copy.ToArray().SequenceEqual(payload) && content.Info.OriginalName == "roundtrip.bin" && content.Info.SizeBytes == payload.Length,
+                    "E2E builder download returns content and public metadata");
+            }
+            var info = await service.GetInfoAsync(id);
+            Check(info != null && info.GetType() == typeof(Arkyva.Core.Models.FileInfo) && await service.ExistsAsync(id), "E2E metadata and physical availability");
+            var page = await service.ListAsync(new FileQuery { FileId = id, PageNumber = 1, PageSize = 1 });
+            Check(page.TotalCount == 1 && page.Items.Single().FileId == id, "E2E filtered pagination");
+            await service.DeleteAsync(id);
+            var deleted = await repository.GetAsync(id);
+            Check(deleted.Status == FileStatus.Deleted && deleted.DeletedUtc.HasValue && !await service.ExistsAsync(id) && await service.GetInfoAsync(id) == null,
+                "E2E logical deletion persists in SQL and removes normal availability");
+            Check(File.Exists(physical[0]) && File.ReadAllBytes(physical[0]).SequenceEqual(payload), "E2E logical deletion retains physical content");
+            Check((await service.ListAsync(new FileQuery { FileId = id })).TotalCount == 0, "E2E default list excludes deleted metadata");
+            await Throws<ArkyvaFileUnavailableException>(() => service.DownloadAsync(id));
+            await service.DeleteAsync(id);
+            Check((await repository.GetAsync(id)).DeletedUtc == deleted.DeletedUtc, "E2E repeated deletion preserves timestamp");
+            Guid[] concurrent = await Task.WhenAll(Enumerable.Range(0, 4).Select(async i =>
+            {
+                using (var source = new MemoryStream(new[] { (byte)i })) return await service.UploadAsync(source, "parallel.bin");
+            }));
+            FileMetadata[] parallel = await Task.WhenAll(concurrent.Select(repository.GetAsync));
+            Check(concurrent.Distinct().Count() == 4 && parallel.All(x => x.Status == FileStatus.Active && x.SizeBytes == 1 && x.CompletionSha256 != null),
+                "E2E same built instance supports concurrent uploads");
+            await Task.WhenAll(concurrent.Select(service.DeleteAsync));
+        }
+        finally
+        {
+            // Only this newly created test directory may be removed; SQL fixture separately drops its fresh database.
+            string full = Path.GetFullPath(root);
+            string prefix = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Path.GetFileName(full).StartsWith("Arkyva-e2e-", StringComparison.Ordinal))
+                throw new Exception("Unsafe E2E cleanup target");
+            Directory.Delete(full, true);
+        }
     }
 
     private static async Task<int> TryInsert(SqlServerMetadataRepository repository, FileMetadata metadata)
