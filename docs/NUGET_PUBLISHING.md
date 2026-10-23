@@ -1,7 +1,9 @@
 # Publicación oficial de Arkyva en NuGet.org
 
-Estado de esta fase: mecanismo preparado y validado localmente; **no se autenticó
-con NuGet/login, no se creó una política ni se publicó ningún paquete**.
+Estado de Fase 9: mecanismo preparado y validado localmente; **no se autenticó
+con NuGet/login ni se publicó ningún paquete**. El propietario informa que creó
+manualmente la política `Arkyva-GitHub-Publish`; su configuración privada no se
+pudo consultar y debe contrastarse antes de autorizar el primer push.
 El feed local es solo una prueba previa, no el mecanismo oficial de distribución.
 
 ## Identidad, paquetes y estado observado
@@ -43,11 +45,13 @@ no fueron ejecutados por esta tarea.
 
 1. Acceder a NuGet.org como angelccallo y completar requisitos de cuenta, correo y
    seguridad que solicite NuGet. Proteger la cuenta y sus métodos de recuperación.
-2. En la cuenta, abrir Trusted Publishing y crear una política GitHub con estos valores:
+2. En la cuenta, abrir Trusted Publishing y revisar la política existente
+   `Arkyva-GitHub-Publish` con estos valores (no crear una duplicada):
 
 | Campo | Valor exacto |
 | --- | --- |
 | NuGet user/owner | angelccallo |
+| Policy name (informado por el propietario) | Arkyva-GitHub-Publish |
 | Repository Owner | angelccallo |
 | Repository | Arkyva |
 | Workflow File | publish-nuget.yml |
@@ -64,9 +68,10 @@ temporal: la documentación explica el periodo de activación inicial y su renov
 3. En GitHub crear el environment nuget-publishing, restringir sus ramas a main y
    configurar revisores requeridos. Su aprobación debe revisar versión, commit,
    resultado de validate y los artefactos, especialmente la primera publicación.
-4. Incorporar el workflow al main del repositorio original mediante commit/push/merge
-   autorizados. Actualmente hay cambios locales de Fase 7 que se conservaron y deben
-   incorporarse junto con lo aprobado de Fase 8. No se hizo push ni se creó un tag/release.
+4. Incorporar el workflow al main del repositorio original mediante Pull Request
+   desde dev, siguiendo el procedimiento de integración de abajo. Las fases 7 y 8
+   están guardadas en `8fd08dd`; esta revisión de Fase 9 debe guardarse antes del PR.
+   No se hizo push, merge ni se creó un tag/release durante esta preparación.
 5. No crear NUGET_API_KEY permanente en GitHub. El workflow usa NuGet/login@v1 con
    user=angelccallo, y únicamente el job publish recibe id-token:write. El login ocurre
    tras todas las validaciones y después de aprobar el environment. El output temporal
@@ -151,6 +156,9 @@ no se solventan cambiando la versión a estable ni se ocultan en el workflow.
 
 ## Versionamiento y publicaciones posteriores
 
+Flujo obligatorio: **desarrollo en dev → Pull Request → main → validación →
+publicación manual → verificación en NuGet.org**. Aprobar el PR no publica paquetes.
+
 La versión solicitada pasa mediante -p:Version a restore/build/pack de toda la solución;
 no modifica la lógica ni archivos fuente. La plantilla del consumidor local se actualiza
 con esa misma versión en su copia temporal. No se deriva de tags ni se crea un release.
@@ -165,6 +173,7 @@ Se admite SemVer canónico en minúsculas, sin ceros iniciales numéricos ni met
 | 1.0.0 | Primera estable validada | allow_stable=true y aprobación explícita de estabilidad |
 | 1.0.1 | Corrección compatible | Mismas verificaciones; nunca reemplaza 1.0.0 |
 | 1.1.0 | Evolución compatible | Mismas verificaciones y contrato semántico |
+| 2.0.0 | MAJOR: cambios incompatibles | Documentar migración y validar consumidores; requiere aprobación estable |
 
 allow_existing_ids NO comprueba la propiedad mediante Authors: es una confirmación
 manual de que angelccallo posee los IDs existentes. NuGet/OIDC aplican los permisos
@@ -212,6 +221,11 @@ resoluciones internas y sus cambios antes del despliegue.
 
 No existe rollback automático del conjunto. Si un push falla o agota indexación,
 revisar Manage packages y los índices antes de actuar: podría haber tenido éxito.
+Conservar el log del run y registrar una fila por paquete con ID, versión, hora UTC,
+resultado del push y comprobación de índice/galería. Distinguir **confirmado**, **no
+intentado** e **incierto**; un timeout nunca equivale a que no se publicó. El mensaje
+`Confirmed public index` identifica cada confirmación; los paquetes posteriores a
+un fallo no se intentan. No declarar éxito global hasta verificar los cuatro.
 Un reinicio sobre la misma versión se bloqueará si alguno ya se publicó. Elegir
 una nueva versión coherente para los cuatro paquetes y aprobarla conscientemente;
 no ocultar el conflicto con skip-duplicate ni cambiar IDs automáticamente.
@@ -235,6 +249,8 @@ no una migración destructiva automática.
 
 ## Evidencia de preparación de Fase 8
 
+Registro histórico; el estado actualizado está en las secciones de Fase 9 siguientes.
+
 - Los cuatro índices públicos devolvieron 404; no se detectó conflicto visible.
 - Build Release de once proyectos y consumidor net472: cero errores/advertencias.
 - 174 comprobaciones de las seis suites, 28 controles de publicación y 7 del
@@ -247,7 +263,98 @@ no una migración destructiva automática.
 - La lógica de almacenamiento y persistencia permanece intacta. Los cambios locales
   previos de Fase 7 se conservaron; todavía requieren commit/revisión autorizados.
 
-Pendientes del propietario: configurar política y environment protegidos, incorporar
-los cambios aprobados a main, ejecutar primero publish=false y, solo después de la
-autorización expresa de la primera publicación, ejecutar publish=true y verificar
-la galería/instalación pública. No hay API Keys permanentes que crear o compartir.
+Los pendientes identificados entonces se revisan en Fase 9: el propietario informa
+la política creada y falta verificar su coincidencia, environment e integración a main.
+No hay API Keys permanentes que crear o compartir.
+
+## Integración dev → main: revisión de Fase 9
+
+Estado consultado el 23 de octubre de 2026, antes de modificar documentación:
+
+- Árbol limpio y rama local dev en `8fd08dd`.
+- main local y remoto en `99b6b64` (Initial commit); HEAD remoto predeterminado main.
+- Consulta directa `git ls-remote --symref origin HEAD refs/heads/main refs/heads/dev`:
+  no existe dev remota. No se modificaron referencias remotas.
+- main es antecesora de dev: seis commits por integrar y cero exclusivos de main;
+  83 archivos, 6837 inserciones y una eliminación en la comparación de esos commits.
+  Incluye solución, cuatro bibliotecas, ejemplo, pruebas, scripts, documentación y
+  CI/publicación; main todavía no contiene `.github/workflows/publish-nuget.yml`.
+- No se observa divergencia/conflicto con el main consultado. Recalcular la comparación
+  y revisar la mergeability del PR inmediatamente antes de integrar; GitHub puede cambiar.
+
+Commits a revisar: `602fc87` estructura; `42d5530` proveedores FileSystem/SQL;
+`dae9005` servicio; `507eff8` recuperación/concurrencia; `af17e81` configuración;
+`8fd08dd` validación/empaquetado/publicación. Añadir el commit aprobado de esta Fase 9.
+
+Procedimiento a ejecutar por el propietario, **no ejecutado por esta tarea**:
+
+1. Revisar y guardar los cambios de Fase 9 en dev. Verificar `git status` y comprobar
+   que no se incluyan artifacts, credenciales ni paquetes compilados.
+2. Tras autorizar la subida: `git push -u origin dev`. Abrir en GitHub un PR con
+   **base main, compare dev**; revisar todos los cambios y el CI de Windows.
+3. Revalidar ramas/posibles conflictos y aprobar el PR. Integrarlo manualmente.
+   No crear tags ni releases como requisito de publicación.
+4. Confirmar en main el workflow y sus scripts. El SHA empaquetado debe ser el SHA
+   de esa ejecución en main, no el de los paquetes locales anteriores al merge.
+5. Revisar en GitHub Settings → Environments `nuget-publishing`: rama main, aprobación
+   requerida y disponibilidad de esa protección según el plan del repositorio.
+   La declaración YAML por sí sola no configura revisores ni demuestra protección.
+6. Contrastar la política privada con la tabla anterior, su vigencia/activación,
+   permisos de nuevos paquetes y nuevas versiones y ámbito de los cuatro IDs.
+   El nombre de política es descriptivo: no se pasa a NuGet/login; importan sus claims.
+7. Actions → **Publish Arkyva to NuGet.org (manual)** → Run workflow → **main** →
+   `version=1.0.0-preview.1`, `publish=false`, `allow_existing_ids=false`,
+   `allow_stable=false`. Exigir validate satisfactorio y revisar los artefactos.
+8. Solo con autorización expresa, repetir con `publish=true` y los otros flags
+   idénticos. Revisar y aprobar el environment para ese candidato concreto.
+
+El workflow y los scripts se revisaron contra la documentación oficial enlazada;
+no se comprobó autenticación OIDC, configuración privada ni ejecución remota.
+
+## Aceptación posterior a la primera publicación
+
+Guardar evidencia del run y completar esta lista antes de anunciar éxito:
+
+1. Comprobar las cuatro páginas de galería con la versión exacta:
+   [Arkyva](https://www.nuget.org/packages/Arkyva/1.0.0-preview.1),
+   [Core](https://www.nuget.org/packages/Arkyva.Core/1.0.0-preview.1),
+   [FileSystem](https://www.nuget.org/packages/Arkyva.Storage.FileSystem/1.0.0-preview.1),
+   [SqlServer](https://www.nuget.org/packages/Arkyva.Metadata.SqlServer/1.0.0-preview.1).
+   Son destinos de verificación futura, no prueba de disponibilidad actual.
+2. Confirmar en **Owners** angelccallo, MIT, versión, repositorio y dependencias
+   internas coherentes en los cuatro nuspec. Authors no acredita propiedad.
+3. Crear otro consumidor limpio net472, sin ProjectReference, caché nueva y sin
+   source mapping local de Arkyva; instalar desde NuGet.org con el comando público
+   documentado. Habilitar Include prerelease en Visual Studio. Comprobar que instala
+   las cuatro bibliotecas sin referencias concretas adicionales y compila Release
+   con sus binding redirects. Registrar los paquetes realmente resueltos.
+4. En una base SQL de pruebas nueva y carpeta aislada, aplicar V001–V004 manualmente,
+   configurar conexión/ruta y construir mediante ArkyvaBuilder. Probar Upload,
+   Download (comparar bytes), GetInfo, List, Exists y Delete lógico. Confirmar en SQL
+   estado/tamaño y eliminación lógica, y que esta conserva el contenido físico.
+   Liberar streams y retirar únicamente los recursos creados para esa prueba.
+5. Registrar resultados, SHA del run y entorno/runtime probado. Una restauración
+   local anterior no reemplaza esta prueba pública. No usar producción ni claves
+   permanentes para estas verificaciones.
+
+## Evidencia de Fase 9 y decisión de publicación
+
+- Restore y Release de once proyectos: cero errores/advertencias. El primer intento
+  restringido falló por TLS/NU1301; se repitió con acceso autorizado y finalizó bien.
+- Auditoría sin vulnerabilidades conocidas; 28 controles de publicación satisfactorios.
+- 226 comprobaciones satisfactorias en seis suites, incluyendo SQL Server LocalDB
+  real, concurrencia, recuperación y E2E. Consumidor instalado desde paquetes:
+  14 comprobaciones internas satisfactorias con SQL/FileSystem reales.
+- Cuatro paquetes 1.0.0-preview.1 inspeccionados y restaurados en consumidor net472
+  independiente, sin referencias fuente y con caché nueva. No fallaron suites.
+- La instancia exclusiva ArkyvaPhase9Validation y la base de pruebas se eliminaron.
+- Los cuatro índices públicos siguen sin versiones visibles. No se reservó ningún ID.
+- Compilación objetivo net472 y ejecución en .NET Framework 4.8.09032 (Release 533320);
+  no runtime aislado 4.7.2, SMB ni IIS. Subsisten los límites funcionales de preview
+  descritos en README/RELEASE_READINESS; no se modificó código del producto.
+
+**Lista para integrar y validar remotamente una preview; todavía no afirmar publicación
+autorizada o exitosa.** Antes del primer push faltan PR/main, comprobación privada de
+política/environment y validación remota satisfactoria del commit a publicar. La política
+fue informada como creada por el propietario; su coincidencia y el intercambio OIDC
+no están verificados. No se ejecutó merge, push, workflow, login, publicación ni release.
