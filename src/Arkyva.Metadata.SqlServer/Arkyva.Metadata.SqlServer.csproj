@@ -5,4 +5,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../Arkyva.Core/Arkyva.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.7" />
+    <None Update="Scripts/*.sql" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles/any/any/Scripts" />
+  </ItemGroup>
 </Project>

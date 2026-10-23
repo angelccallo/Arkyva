@@ -14,7 +14,7 @@ namespace Arkyva.Core.Interfaces
         /// <summary>Obtiene el registro en cualquier estado o null si no existe.</summary>
         Task<FileMetadata> GetAsync(Guid fileId);
 
-        /// <summary>Lista solo registros activos con filtros y orden por CreatedUtc y FileId ascendentes. TotalCount es el total filtrado antes de paginar.</summary>
+        /// <summary>Lista registros con filtros (activos por defecto; Status null incluye todos los estados) y orden por CreatedUtc y FileId ascendentes. TotalCount es el total filtrado antes de paginar.</summary>
         Task<PagedResult<FileMetadata>> ListAsync(FileQuery query);
 
         /// <summary>Indica si existe un registro activo para el identificador.</summary>
