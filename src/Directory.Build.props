@@ -1,0 +1,23 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.0-preview.1</Version>
+    <PackageId>$(MSBuildProjectName)</PackageId>
+    <Authors>Angel Ccallo</Authors>
+    <Copyright>Copyright (c) 2026 angelccallo</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/angelccallo/Arkyva</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/angelccallo/Arkyva</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>storage;files;documents;filesystem;sqlserver</PackageTags>
+    <IsPackable>true</IsPackable>
+    <IncludeSymbols>false</IncludeSymbols>
+    <Deterministic>true</Deterministic>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../LICENSE" Pack="true" PackagePath="/" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)../docs/NUGET_README.md" Pack="true" PackagePath="/README.md" Visible="false" />
+  </ItemGroup>
+</Project>
