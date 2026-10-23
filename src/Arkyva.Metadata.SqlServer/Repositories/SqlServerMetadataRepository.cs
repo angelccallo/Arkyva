@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading.Tasks;
 using Arkyva.Core.Interfaces;
 using Arkyva.Core.Models;
@@ -10,10 +11,10 @@ namespace Arkyva.Metadata.SqlServer.Repositories
 {
     /// <summary>Persists technical metadata using short-lived pooled SQL Server connections.</summary>
     /// <remarks>Requires the versioned scripts to be applied separately. Never accesses physical files.</remarks>
-    public sealed class SqlServerMetadataRepository : IMetadataRepository
+    public sealed class SqlServerMetadataRepository : IRecoveryMetadataRepository
     {
         private readonly string connectionString;
-        private const string Columns = "FileId, OriginalName, Extension, MimeType, SizeBytes, ProviderId, StorageKey, Status, CreatedUtc, DeletedUtc";
+        private const string Columns = "FileId, OriginalName, Extension, MimeType, SizeBytes, ProviderId, StorageKey, Status, CreatedUtc, DeletedUtc, Revision, CompletionSha256";
         private const string Filter = @"
 WHERE (@FileId IS NULL OR FileId = @FileId)
   AND (@Status IS NULL OR Status = @Status)
@@ -39,6 +40,8 @@ WHERE (@FileId IS NULL OR FileId = @FileId)
         public async Task AddAsync(FileMetadata metadata)
         {
             Validate(metadata);
+            if (metadata.Revision != 0 || metadata.CompletionSha256 != null)
+                throw new ArgumentException("New records cannot supply a revision or publication receipt.", nameof(metadata));
             using (var connection = new SqlConnection(connectionString))
             using (var command = connection.CreateCommand())
             {
@@ -118,7 +121,7 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
             }
         }
 
-        /// <summary>Updates descriptive metadata and state while preserving identity, physical reference and creation time; size can be finalized only during Pending to Active.</summary>
+        /// <summary>Updates descriptive metadata and state while preserving identity, physical reference and creation time; receipt and size are immutable here; all writes compare and increment Revision.</summary>
         /// <remarks>Pending may become Active, Failed or Deleted; Active may become Failed or Deleted; Failed may become Deleted. Deleted is terminal. Same-state updates are allowed.</remarks>
         /// <exception cref="InvalidOperationException">The record is missing, a transition is forbidden, or immutable values conflict.</exception>
         public async Task UpdateAsync(FileMetadata metadata)
@@ -129,21 +132,99 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
             {
                 command.CommandText = @"UPDATE arkyva.Files SET
 OriginalName = @OriginalName, Extension = @Extension, MimeType = @MimeType,
-Status = @Status, SizeBytes = @SizeBytes, DeletedUtc = @DeletedUtc, UpdatedUtc = SYSUTCDATETIME()
-WHERE FileId = @FileId AND ProviderId = @ProviderId COLLATE Latin1_General_100_BIN2
+Status = @Status, DeletedUtc = @DeletedUtc, UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
+WHERE FileId = @FileId AND Revision = @Revision AND (CompletionSha256 = @Receipt OR (CompletionSha256 IS NULL AND @Receipt IS NULL)) AND ProviderId = @ProviderId COLLATE Latin1_General_100_BIN2
 AND DATALENGTH(ProviderId) = DATALENGTH(@ProviderId)
 AND StorageKey = @StorageKey COLLATE Latin1_General_100_BIN2 AND DATALENGTH(StorageKey) = DATALENGTH(@StorageKey)
-AND (SizeBytes = @SizeBytes OR (Status = 'Pending' AND @Status = 'Active')) AND CreatedUtc = @CreatedUtc
+AND SizeBytes = @SizeBytes AND CreatedUtc = @CreatedUtc
 AND ((Status = @Status AND (DeletedUtc = @DeletedUtc OR (DeletedUtc IS NULL AND @DeletedUtc IS NULL)))
- OR (Status = 'Pending' AND @Status IN ('Active', 'Failed', 'Deleted'))
+ OR (Status = 'Pending' AND @Status IN ('Failed', 'Deleted'))
+ OR (Status = 'Pending' AND @Status = 'Active' AND CompletionSha256 IS NOT NULL)
  OR (Status = 'Active' AND @Status IN ('Failed', 'Deleted'))
  OR (Status = 'Failed' AND @Status = 'Deleted'));
 SELECT @@ROWCOUNT;";
                 MetadataParameters(command, metadata);
                 await OpenAsync(connection).ConfigureAwait(false);
                 if ((int)await command.ExecuteScalarAsync().ConfigureAwait(false) != 1)
-                    throw new InvalidOperationException("Record is missing, immutable fields differ, or the requested state transition is not allowed.");
+                    throw new InvalidOperationException("Record is missing, revision/immutable fields differ, or the requested state transition is not allowed.");
+                metadata.Revision++;
             }
+        }
+
+        /// <summary>Records a post-publication receipt using compare-and-swap on revision and Pending state.</summary>
+        public async Task<bool> TryRecordUploadAsync(FileMetadata expected, long sizeBytes, string sha256)
+        {
+            Validate(expected);
+            ValidateHash(sha256);
+            if (sizeBytes < 0) throw new ArgumentOutOfRangeException(nameof(sizeBytes));
+            if (expected.Status != FileStatus.Pending || expected.CompletionSha256 != null)
+                throw new ArgumentException("A Pending snapshot without a receipt is required.", nameof(expected));
+            using (var connection = new SqlConnection(connectionString))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"UPDATE arkyva.Files SET SizeBytes = @Size, CompletionSha256 = @Hash,
+UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
+WHERE FileId = @Id AND Revision = @Version AND Status = 'Pending' AND CompletionSha256 IS NULL;
+SELECT @@ROWCOUNT;";
+                Parameter(command, "@Id", SqlDbType.UniqueIdentifier, expected.FileId);
+                Parameter(command, "@Version", SqlDbType.BigInt, expected.Revision);
+                Parameter(command, "@Size", SqlDbType.BigInt, sizeBytes);
+                Parameter(command, "@Hash", SqlDbType.Char, sha256, 64);
+                await OpenAsync(connection).ConfigureAwait(false);
+                if ((int)await command.ExecuteScalarAsync().ConfigureAwait(false) != 1) return false;
+                expected.Revision++; expected.SizeBytes = sizeBytes; expected.CompletionSha256 = sha256;
+                return true;
+            }
+        }
+
+        /// <summary>Activates an independently verified receipt from exactly the observed revision and Pending/Failed state.</summary>
+        public async Task<bool> TryActivateRecoveredAsync(FileMetadata expected)
+        {
+            Validate(expected);
+            ValidateHash(expected.CompletionSha256);
+            if (expected.Status != FileStatus.Pending && expected.Status != FileStatus.Failed)
+                throw new ArgumentException("Only Pending or Failed can be recovered.", nameof(expected));
+            using (var connection = new SqlConnection(connectionString))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"UPDATE arkyva.Files SET Status = 'Active', UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
+WHERE FileId = @Id AND Revision = @Version AND Status = @ExpectedStatus AND CompletionSha256 = @Hash AND SizeBytes = @Size;
+SELECT @@ROWCOUNT;";
+                Parameter(command, "@Id", SqlDbType.UniqueIdentifier, expected.FileId);
+                Parameter(command, "@Version", SqlDbType.BigInt, expected.Revision);
+                Parameter(command, "@ExpectedStatus", SqlDbType.VarChar, expected.Status.ToString(), 20);
+                Parameter(command, "@Hash", SqlDbType.Char, expected.CompletionSha256, 64);
+                Parameter(command, "@Size", SqlDbType.BigInt, expected.SizeBytes);
+                await OpenAsync(connection).ConfigureAwait(false);
+                if ((int)await command.ExecuteScalarAsync().ConfigureAwait(false) != 1) return false;
+                expected.Revision++; expected.Status = FileStatus.Active;
+                return true;
+            }
+        }
+
+        /// <summary>Returns exact provider/key metadata in any state, without treating absence as proof of an orphan.</summary>
+        public async Task<FileMetadata> GetByStorageKeyAsync(string providerId, string storageKey)
+        {
+            Text(providerId, nameof(providerId), 100, true); Text(storageKey, nameof(storageKey), 1000, true);
+            using (var connection = new SqlConnection(connectionString))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT " + Columns + @" FROM arkyva.Files WHERE StorageIdentityHash = CONVERT(BINARY(32), HASHBYTES('SHA2_256',
+CONVERT(BINARY(4), DATALENGTH(@Provider)) + CONVERT(VARBINARY(200), @Provider) + CONVERT(VARBINARY(2000), @Key)))
+AND ProviderId = @Provider COLLATE Latin1_General_100_BIN2
+AND StorageKey = @Key COLLATE Latin1_General_100_BIN2 AND DATALENGTH(ProviderId) = DATALENGTH(@Provider) AND DATALENGTH(StorageKey) = DATALENGTH(@Key);";
+                Parameter(command, "@Provider", SqlDbType.NVarChar, providerId, 100);
+                Parameter(command, "@Key", SqlDbType.NVarChar, storageKey, 1000);
+                await OpenAsync(connection).ConfigureAwait(false);
+                using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
+                    return await reader.ReadAsync().ConfigureAwait(false) ? Read(reader) : null;
+            }
+        }
+
+        private static void ValidateHash(string hash)
+        {
+            if (hash == null || hash.Length != 64 || hash.Any(c => !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f')))
+                throw new ArgumentException("A lowercase SHA-256 hex digest is required.", nameof(hash));
         }
 
         private static async Task OpenAsync(SqlConnection connection)
@@ -166,12 +247,15 @@ SELECT @@ROWCOUNT;";
                 ProviderId = reader.GetString(5), StorageKey = reader.GetString(6),
                 Status = (FileStatus)Enum.Parse(typeof(FileStatus), reader.GetString(7)),
                 CreatedUtc = DateTime.SpecifyKind(reader.GetDateTime(8), DateTimeKind.Utc),
-                DeletedUtc = reader.IsDBNull(9) ? (DateTime?)null : DateTime.SpecifyKind(reader.GetDateTime(9), DateTimeKind.Utc)
+                DeletedUtc = reader.IsDBNull(9) ? (DateTime?)null : DateTime.SpecifyKind(reader.GetDateTime(9), DateTimeKind.Utc),
+                Revision = reader.GetInt64(10), CompletionSha256 = reader.IsDBNull(11) ? null : reader.GetString(11)
             };
         }
 
         private static void MetadataParameters(SqlCommand command, FileMetadata metadata)
         {
+            Parameter(command, "@Revision", SqlDbType.BigInt, metadata.Revision);
+            Parameter(command, "@Receipt", SqlDbType.Char, metadata.CompletionSha256, 64);
             Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, metadata.FileId);
             Parameter(command, "@OriginalName", SqlDbType.NVarChar, metadata.OriginalName, 255);
             Parameter(command, "@Extension", SqlDbType.NVarChar, metadata.Extension, 30);
@@ -212,6 +296,8 @@ SELECT @@ROWCOUNT;";
         {
             if (metadata == null) throw new ArgumentNullException(nameof(metadata));
             ValidateId(metadata.FileId);
+            if (metadata.Revision < 0) throw new ArgumentOutOfRangeException(nameof(metadata.Revision));
+            if (metadata.CompletionSha256 != null) ValidateHash(metadata.CompletionSha256);
             Text(metadata.OriginalName, nameof(metadata.OriginalName), 255, true);
             Text(metadata.Extension, nameof(metadata.Extension), 30, false);
             Text(metadata.MimeType, nameof(metadata.MimeType), 255, false);

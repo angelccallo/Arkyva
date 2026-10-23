@@ -51,6 +51,12 @@ internal static class Program
         var repository = new SqlServerMetadataRepository("Data Source=invalid;Initial Catalog=validation;Integrated Security=True;Connect Timeout=1");
         await Throws<ArgumentNullException>(() => repository.AddAsync(null));
         await Throws<ArgumentNullException>(() => repository.UpdateAsync(null));
+        await Throws<ArgumentException>(() => repository.AddAsync(new FileMetadata { FileId = Guid.NewGuid(), OriginalName = "x", ProviderId = "p", StorageKey = "k", CreatedUtc = Created, Revision = -1 }));
+        var suppliedReceipt = Metadata(); suppliedReceipt.CompletionSha256 = new string('a', 64);
+        await Throws<ArgumentException>(() => repository.AddAsync(suppliedReceipt));
+        await Throws<ArgumentException>(() => repository.TryRecordUploadAsync(Metadata(), -1, new string('a', 64)));
+        await Throws<ArgumentException>(() => repository.TryRecordUploadAsync(Metadata(), 1, "bad"));
+        await Throws<ArgumentException>(() => repository.TryActivateRecoveredAsync(Metadata()));
         Action<FileMetadata>[] mutations = {
             m => m.FileId = Guid.Empty, m => m.OriginalName = null, m => m.OriginalName = " ",
             m => m.OriginalName = new string('x', 256), m => m.ProviderId = null,
@@ -144,6 +150,8 @@ internal static class Program
         await repository.AddAsync(longKey);
         Check((await repository.GetAsync(longKey.FileId)).StorageKey.Length == 1000, "Maximum provider/key lengths supported by unique hash index");
 
+        Check(await repository.TryRecordUploadAsync(file, 321, new string('a', 64)), "Post-publication receipt persisted with revision");
+        Check((await repository.GetAsync(file.FileId)).Revision == 1 && (await repository.GetAsync(file.FileId)).CompletionSha256 == new string('a', 64), "Receipt roundtrip");
         file.Status = FileStatus.Active;
         file.SizeBytes = 321;
         await repository.UpdateAsync(file);
@@ -210,7 +218,18 @@ internal static class Program
         var delete = await repository.GetAsync(competing.FileId); delete.Status = FileStatus.Deleted; delete.DeletedUtc = Created.AddHours(3);
         var fail = await repository.GetAsync(competing.FileId); fail.Status = FileStatus.Failed;
         await Task.WhenAll(TryUpdate(repository, delete), TryUpdate(repository, fail));
-        Check((await repository.GetAsync(competing.FileId)).Status == FileStatus.Deleted, "Concurrent stale state change cannot resurrect Deleted");
+        var winner = await repository.GetAsync(competing.FileId);
+        Check(winner.Revision == 1 && (winner.Status == FileStatus.Deleted || winner.Status == FileStatus.Failed), "Concurrent state writes allow exactly one revision winner");
+        var recovery = Metadata(); await repository.AddAsync(recovery);
+        Check(await repository.TryRecordUploadAsync(recovery, 77, new string('b', 64)), "Recovery receipt");
+        var staleReceipt = Metadata(); staleReceipt.FileId = recovery.FileId;
+        Check(!await repository.TryRecordUploadAsync(staleReceipt, 88, new string('c', 64)), "Stale receipt cannot replace evidence");
+        recovery.Status = FileStatus.Failed; await repository.UpdateAsync(recovery);
+        var recoveryA = await repository.GetAsync(recovery.FileId); var recoveryB = await repository.GetAsync(recovery.FileId);
+        bool[] recovered = await Task.WhenAll(repository.TryActivateRecoveredAsync(recoveryA), repository.TryActivateRecoveredAsync(recoveryB));
+        Check(recovered.Count(x => x) == 1 && (await repository.GetAsync(recovery.FileId)).Status == FileStatus.Active, "Concurrent receipt recoveries have one revision winner");
+        Check((await repository.GetByStorageKeyAsync(recovery.ProviderId, recovery.StorageKey)).FileId == recovery.FileId &&
+            await repository.GetByStorageKeyAsync(recovery.ProviderId, recovery.StorageKey + "missing") == null, "Exact inventory lookup");
         await Throws<SqlException>(() => Execute(sql, "INSERT INTO arkyva.Files (FileId,OriginalName,SizeBytes,ProviderId,StorageKey,Status) VALUES (NEWID(), N'x', -1, N'p', N'k', 'Pending');"));
         await Throws<SqlException>(() => Execute(sql, "INSERT INTO arkyva.Files (FileId,OriginalName,SizeBytes,ProviderId,StorageKey,Status) VALUES (NEWID(), N'x', 1, N'p', N'k', 'Deleted');"));
         await Throws<SqlException>(() => Execute(sql, "INSERT INTO arkyva.Files (FileId,OriginalName,SizeBytes,ProviderId,StorageKey,Status) VALUES (NEWID(), N'x', 1, N'p', N'k', 'Active ');"));

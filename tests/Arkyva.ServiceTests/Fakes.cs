@@ -30,11 +30,15 @@ internal sealed class FakeStorage : IStorageProvider
     internal readonly Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>();
     internal int Saves, Reads, Exists, Deletes;
     internal string LastKey;
-    internal Exception SaveFailure, ReadFailure, ExistsFailure;
-    internal bool PublishBeforeFailure, Discard, DisposeInput;
-    internal Action OnSave;
+    internal Exception SaveFailure { get; set; }
+    internal Exception ReadFailure { get; set; }
+    internal Exception ExistsFailure { get; set; }
+    internal bool PublishBeforeFailure { get; set; }
+    internal bool Discard { get; set; }
+    internal bool DisposeInput { get; set; }
+    internal Action OnSave { get; set; }
     internal TrackingStream LastRead;
-    internal Stream ReturnedStream;
+    internal Stream ReturnedStream { get; set; }
     public async Task SaveAsync(string key, Stream content)
     {
         Saves++; LastKey = key;
@@ -75,22 +79,26 @@ internal sealed class FakeStorage : IStorageProvider
     public Task DeleteAsync(string key) { Deletes++; Files.Remove(key); return Task.CompletedTask; }
 }
 
-internal sealed class FakeMetadata : IMetadataRepository
+internal class FakeMetadata : IMetadataRepository
 {
     internal readonly Dictionary<Guid, FileMetadata> Rows = new Dictionary<Guid, FileMetadata>();
     internal readonly List<FileMetadata> Writes = new List<FileMetadata>();
     internal int Adds, Gets, Lists, Updates;
     internal FileQuery LastQuery;
-    internal Exception AddFailure, GetFailure, ListFailure, UpdateFailure;
+    internal Exception AddFailure { get; set; }
+    internal Exception GetFailure { get; set; }
+    internal Exception ListFailure { get; set; }
+    internal Exception UpdateFailure { get; set; }
     internal FileStatus? FailureStatus;
-    internal bool CommitAddBeforeFailure, CommitUpdateBeforeFailure;
-    internal Func<Task> OnGet;
-    private readonly object sync = new object();
+    internal bool CommitAddBeforeFailure { get; set; }
+    internal bool CommitUpdateBeforeFailure { get; set; }
+    internal Func<Task> OnGet { get; set; }
+    internal readonly object sync = new object();
     internal static FileMetadata Copy(FileMetadata m)
     {
         return new FileMetadata { FileId = m.FileId, OriginalName = m.OriginalName, Extension = m.Extension,
             MimeType = m.MimeType, SizeBytes = m.SizeBytes, CreatedUtc = m.CreatedUtc, DeletedUtc = m.DeletedUtc,
-            Status = m.Status, ProviderId = m.ProviderId, StorageKey = m.StorageKey };
+            Status = m.Status, ProviderId = m.ProviderId, StorageKey = m.StorageKey, Revision = m.Revision, CompletionSha256 = m.CompletionSha256 };
     }
     public Task AddAsync(FileMetadata m)
     {
@@ -151,9 +159,10 @@ internal sealed class FakeMetadata : IMetadataRepository
                 current.Status == FileStatus.Active && (m.Status == FileStatus.Failed || m.Status == FileStatus.Deleted) ||
                 current.Status == FileStatus.Failed && m.Status == FileStatus.Deleted;
             bool size = current.SizeBytes == m.SizeBytes || current.Status == FileStatus.Pending && m.Status == FileStatus.Active;
-            if (!transition || !size || current.CreatedUtc != m.CreatedUtc || current.ProviderId != m.ProviderId || current.StorageKey != m.StorageKey ||
+            if (current.Revision != m.Revision || current.CompletionSha256 != m.CompletionSha256 || !transition || !size || current.CreatedUtc != m.CreatedUtc || current.ProviderId != m.ProviderId || current.StorageKey != m.StorageKey ||
                 current.Status == FileStatus.Deleted && current.DeletedUtc != m.DeletedUtc)
                 throw new InvalidOperationException("Conflict");
+            m.Revision++;
             Rows[m.FileId] = Copy(m); Writes.Add(Copy(m));
             if (fail) throw UpdateFailure;
         }

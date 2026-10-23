@@ -3,12 +3,13 @@ Lightweight, extensible file storage library for .NET.
 
 ## Estado
 
-Fase 4: servicio principal implementado con los proveedores FileSystem y SQL Server.
-Recuperación automática y configuración fluida pendientes.
+Fase 5: servicio principal, proveedores FileSystem/SQL Server y recuperación manual
+verificada con SHA-256, DryRun y concurrencia optimista. Configuración fluida pendiente.
 Las bibliotecas utilizan .NET Standard 2.0, compatible con .NET Framework 4.7.2.
 
 ```powershell
 dotnet build Arkyva.sln --configuration Release
+& ./tests/Arkyva.RecoveryTests/bin/Release/net472/Arkyva.RecoveryTests.exe
 & ./tests/Arkyva.ServiceTests/bin/Release/net472/Arkyva.ServiceTests.exe
 & ./tests/Arkyva.ContractTests/bin/Release/net472/Arkyva.ContractTests.exe
 & ./tests/Arkyva.FileSystemTests/bin/Release/net472/Arkyva.FileSystemTests.exe
@@ -24,3 +25,5 @@ Consulta [el proveedor FileSystem](docs/FILESYSTEM.md) para rutas locales y UNC,
 Consulta [el proveedor SQL Server](docs/SQLSERVER.md) para instalar el esquema, usar el repositorio y configurar pruebas aisladas. Sin conexión de pruebas se ejecutan solo las validaciones offline y la integración SQL se marca como omitida.
 
 Consulta [ArkyvaService](docs/SERVICE.md) para composición manual, carga, descarga, estados y manejo de errores.
+
+Consulta [recuperación y concurrencia](docs/RECOVERY.md). La Fase 5 requiere aplicar V004 manualmente y actualizar todas las instancias; los temporales inciertos se diagnostican y conservan.

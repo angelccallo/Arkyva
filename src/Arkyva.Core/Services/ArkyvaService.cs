@@ -46,9 +46,14 @@ namespace Arkyva.Core.Services
             catch (Exception error) { throw new ArkyvaMetadataException("Could not register the upload; its result may be uncertain.", id, error); }
 
             long size;
+            string digest;
             using (var counted = new CountingReadStream(content))
             {
-                try { await storage.SaveAsync(pending.StorageKey, counted).ConfigureAwait(false); }
+                try
+                {
+                    await storage.SaveAsync(pending.StorageKey, counted).ConfigureAwait(false);
+                    digest = counted.CompleteHash();
+                }
                 catch (Exception error)
                 {
                     var failed = Copy(pending); failed.Status = FileStatus.Failed;
@@ -58,7 +63,19 @@ namespace Arkyva.Core.Services
                     // Never delete a key whose publication result could be uncertain.
                     throw new ArkyvaStorageException("Could not store the upload. Its content has not been removed automatically.", id, cause);
                 }
+                finally { counted.ReleaseHash(); }
                 size = counted.BytesRead;
+            }
+            var recoverable = metadata as IRecoveryMetadataRepository;
+            if (recoverable != null)
+            {
+                try
+                {
+                    if (!await recoverable.TryRecordUploadAsync(pending, size, digest).ConfigureAwait(false))
+                        throw new InvalidOperationException("Upload receipt revision conflict.");
+                }
+                catch (Exception error)
+                { throw new ArkyvaMetadataException("Could not confirm the upload receipt; its result may be uncertain.", id, error); }
             }
             var active = Copy(pending); active.Status = FileStatus.Active; active.SizeBytes = size;
             try { await metadata.UpdateAsync(active).ConfigureAwait(false); }
@@ -164,7 +181,7 @@ namespace Arkyva.Core.Services
             return new FileMetadata { FileId = source.FileId, OriginalName = source.OriginalName,
                 Extension = source.Extension, MimeType = source.MimeType, SizeBytes = source.SizeBytes,
                 CreatedUtc = source.CreatedUtc, DeletedUtc = source.DeletedUtc, Status = source.Status,
-                ProviderId = source.ProviderId, StorageKey = source.StorageKey };
+                ProviderId = source.ProviderId, StorageKey = source.StorageKey, Revision = source.Revision, CompletionSha256 = source.CompletionSha256 };
         }
 
         private static string ValidateName(string name)

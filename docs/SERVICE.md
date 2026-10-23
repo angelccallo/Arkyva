@@ -1,3 +1,7 @@
+> Esta página describe la Fase 4. Desde la Fase 5, el flujo vigente calcula SHA-256,
+> persiste el recibo antes de activar y usa revisiones optimistas. Consultar
+> [RECOVERY.md](RECOVERY.md) para los cambios y el mantenimiento manual.
+
 # Servicio principal — Fase 4
 
 ArkyvaService reside en Arkyva.Core y depende solo de IStorageProvider e

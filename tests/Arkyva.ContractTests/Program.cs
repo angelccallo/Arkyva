@@ -16,6 +16,9 @@ internal static class Program
             Check(typeof(IArkyvaService).GetMethod("GetInfoAsync").ReturnType == typeof(Task<Arkyva.Core.Models.FileInfo>), "API devuelve metadatos publicos");
             Check(typeof(IArkyvaService).GetMethod("DownloadAsync").ReturnType == typeof(Task<FileContent>) && typeof(IDisposable).IsAssignableFrom(typeof(FileContent)), "Descarga con contenido y metadatos desechables");
             Check(typeof(IStorageProvider).GetMethod("ReadAsync").ReturnType == typeof(Task<System.IO.Stream>), "Lectura mediante stream");
+            Check(typeof(IRecoveryMetadataRepository).GetMethods().All(m => typeof(Task).IsAssignableFrom(m.ReturnType)) &&
+                typeof(IStorageDiagnostics).GetMethod("InspectAsync").ReturnType == typeof(Task<StorageInventory>), "Capacidades de recuperación asíncronas");
+            Check(!typeof(Arkyva.Core.Models.FileInfo).GetProperties().Any(p => p.Name == "CompletionSha256" || p.Name == "Revision"), "Recibo y revisión encapsulados");
             Check(new FileMetadata().Status == FileStatus.Pending, "Estado inicial no publicado");
             Check(new FileQuery().PageNumber == 1 && new FileQuery().PageSize > 0, "Paginacion inicial valida");
             Check(new PagedResult<FileMetadata>().Items.Count == 0, "Pagina inicial vacia");

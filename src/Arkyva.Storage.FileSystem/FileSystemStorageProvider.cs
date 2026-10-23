@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using Arkyva.Core.Models;
 using System.Threading.Tasks;
 using Arkyva.Core.Interfaces;
 
@@ -7,7 +10,7 @@ namespace Arkyva.Storage.FileSystem
 {
     /// <summary>Stores streamed content below a local or UNC directory without replacing existing files.</summary>
     /// <remarks>The repository tree must be protected against external changes to links and directories.</remarks>
-    public sealed class FileSystemStorageProvider : IStorageProvider
+    public sealed class FileSystemStorageProvider : IStorageProvider, IStorageDiagnostics
     {
         private const int BufferSize = 81920;
         private const string TemporaryPrefix = ".arkyva-";
@@ -108,6 +111,45 @@ namespace Arkyva.Storage.FileSystem
             try { File.Delete(path); }
             catch (DirectoryNotFoundException) { }
             return Task.CompletedTask;
+        }
+
+        /// <summary>Read-only bounded inventory. Reparse points are skipped and no file is deleted, even when old or apparently unlocked.</summary>
+        public Task<StorageInventory> InspectAsync(int maxEntries)
+        {
+            if (maxEntries < 1 || maxEntries > 100000) throw new ArgumentOutOfRangeException(nameof(maxEntries));
+            RejectLinks(basePath);
+            var result = new StorageInventory();
+            var entries = new List<StorageInventoryEntry>();
+            var directories = new Stack<string>(); directories.Push(basePath);
+            int visited = 0;
+            while (directories.Count > 0 && !result.Truncated)
+            {
+                string directory = directories.Pop();
+                try
+                {
+                    RejectLinks(directory);
+                    foreach (string path in Directory.EnumerateFileSystemEntries(directory))
+                    {
+                        if (visited++ >= maxEntries) { result.Truncated = true; break; }
+                        try
+                        {
+                            FileAttributes attributes = File.GetAttributes(path);
+                            if ((attributes & FileAttributes.ReparsePoint) != 0) { result.LinksSkipped++; continue; }
+                            if ((attributes & FileAttributes.Directory) != 0) { directories.Push(path); continue; }
+                            RejectLinks(path);
+                            entries.Add(new StorageInventoryEntry { Key = path.Substring(basePrefix.Length).Replace('\\', '/'),
+                                IsTemporary = Regex.IsMatch(Path.GetFileName(path), @"\A\.arkyva-[0-9a-f]{32}\.tmp\z"),
+                                LastWriteUtc = File.GetLastWriteTimeUtc(path) });
+                        }
+                        catch (IOException) { result.Errors++; }
+                        catch (UnauthorizedAccessException) { result.Errors++; }
+                    }
+                }
+                catch (IOException) { result.Errors++; }
+                catch (UnauthorizedAccessException) { result.Errors++; }
+            }
+            result.Entries = entries;
+            return Task.FromResult(result);
         }
 
         private string Resolve(string key)

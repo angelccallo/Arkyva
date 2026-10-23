@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arkyva.SqlServerTests", "te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arkyva.ServiceTests", "tests\Arkyva.ServiceTests\Arkyva.ServiceTests.csproj", "{C332E3DC-2B1D-4B1E-B4BB-CD1B3A44E122}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arkyva.RecoveryTests", "tests\Arkyva.RecoveryTests\Arkyva.RecoveryTests.csproj", "{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -115,6 +117,18 @@ Global
 		{C332E3DC-2B1D-4B1E-B4BB-CD1B3A44E122}.Release|x64.Build.0 = Release|Any CPU
 		{C332E3DC-2B1D-4B1E-B4BB-CD1B3A44E122}.Release|x86.ActiveCfg = Release|Any CPU
 		{C332E3DC-2B1D-4B1E-B4BB-CD1B3A44E122}.Release|x86.Build.0 = Release|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Debug|x64.Build.0 = Debug|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Debug|x86.Build.0 = Debug|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Release|x64.ActiveCfg = Release|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Release|x64.Build.0 = Release|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Release|x86.ActiveCfg = Release|Any CPU
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -127,5 +141,6 @@ Global
 		{F943B140-3331-4B5D-9C5D-DF22EFF272F9} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{57D65ACD-4871-4F5C-9559-C4E5B8142684} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{C332E3DC-2B1D-4B1E-B4BB-CD1B3A44E122} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{8801A0A0-5BA0-4BE3-857F-E97EFFD08BFD} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

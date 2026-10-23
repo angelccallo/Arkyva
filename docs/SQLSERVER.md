@@ -19,6 +19,7 @@ Crear o seleccionar una base antes de ejecutar, en orden, los archivos de
 1. `V001_CreateSchema.sql`: crea únicamente el esquema `arkyva` si falta.
 2. `V002_CreateFilesTable.sql`: crea `arkyva.Files` y sus restricciones si falta.
 3. `V003_CreateIndexes.sql`: crea los índices faltantes por nombre.
+4. `V004_AddRecoveryEvidence.sql`: añade revisión y recibo SHA-256 (Fase 5).
 
 Ejemplo con autenticación integrada (sustituir servidor y base):
 
@@ -26,6 +27,7 @@ Ejemplo con autenticación integrada (sustituir servidor y base):
 sqlcmd -S SERVIDOR -d BASE -E -b -i src/Arkyva.Metadata.SqlServer/Scripts/V001_CreateSchema.sql
 sqlcmd -S SERVIDOR -d BASE -E -b -i src/Arkyva.Metadata.SqlServer/Scripts/V002_CreateFilesTable.sql
 sqlcmd -S SERVIDOR -d BASE -E -b -i src/Arkyva.Metadata.SqlServer/Scripts/V003_CreateIndexes.sql
+sqlcmd -S SERVIDOR -d BASE -E -b -i src/Arkyva.Metadata.SqlServer/Scripts/V004_AddRecoveryEvidence.sql
 ```
 
 Los scripts contienen separadores GO y opciones SET necesarias para el índice
@@ -52,6 +54,8 @@ Los nombres conservan los modelos de Core, en lugar de crear un segundo modelo:
 | UpdatedUtc | datetime2(7) | Técnico, actualizado por Update |
 | DeletedUtc | datetime2(7) | Solo para Deleted, no anterior a creación |
 | StorageIdentityHash | binary(32) calculado persistido | SHA-256 de proveedor y clave |
+| Revision | bigint | Revisión optimista, default 0 |
+| CompletionSha256 | char(64) | Recibo de publicación; null para históricos |
 
 Se usa precisión de siete decimales para conservar los ticks de DateTime y evitar
 conflictos al comprobar campos inmutables. El repositorio exige DateTimeKind.Utc y
@@ -96,8 +100,9 @@ var metadata = new FileMetadata
 await repository.AddAsync(metadata);
 FileMetadata stored = await repository.GetAsync(metadata.FileId);
 
-stored.Status = FileStatus.Active;
-await repository.UpdateAsync(stored);
+// Tras un SaveAsync exitoso y cálculo completo de tamaño/hash, usar
+// IRecoveryMetadataRepository.TryRecordUploadAsync antes de activar.
+// Para consumir archivos normalmente, utilizar ArkyvaService (ver SERVICE.md).
 bool active = await repository.ExistsAsync(stored.FileId);
 
 var page = await repository.ListAsync(new FileQuery
@@ -149,8 +154,11 @@ reactivación de Deleted; el reinicio de Failed requerirá una decisión explíc
 una futura fase. La tabla valida estados y coherencia de fechas; la política de
 transiciones es responsabilidad de este repositorio, no de un trigger.
 
-Los cambios simultáneos de campos descriptivos siguen la política de última
-escritura aceptada: no se introduce rowversion ni un control optimista completo.
+Desde la Fase 5, todas las actualizaciones comprueban Revision y la incrementan
+al tener éxito; los snapshots atrasados ya no siguen la política de última escritura.
+No se permite cambiar el recibo ni el tamaño mediante UpdateAsync; el recibo se
+fija con TryRecordUploadAsync antes de activar. Failed → Active se reserva a
+TryActivateRecoveredAsync tras verificación de contenido.
 Una transición rechazada, campos inmutables distintos o registro ausente producen
 InvalidOperationException sin intentar adivinar la causa mediante otra consulta
 que podría sufrir carreras. No hay transacción con FileSystem ni reintentos
@@ -233,3 +241,11 @@ SQL no se ejecutaron; quedan pendientes de validar el proveedor contra un servid
 
 La integración mediante ArkyvaService se implementó en la Fase 4; ver [SERVICE.md](SERVICE.md).
 La configuración fluida, reconciliación y recuperación automática siguen pendientes.
+
+## Despliegue de Fase 5
+
+Aplicar V004 con todos los escritores detenidos y actualizar todas las instancias:
+no mezclar binarios anteriores que no comprueben/incrementen Revision. Los métodos
+nuevos y las condiciones vigentes sustituyen las reglas históricas de finalización
+de tamaño durante Pending → Active descritas para la Fase 4.
+Consultar [RECOVERY.md](RECOVERY.md) para el protocolo de recibo, límites y pruebas.

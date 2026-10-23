@@ -20,7 +20,7 @@ namespace Arkyva.Core.Interfaces
         /// <summary>Indica si existe un registro activo para el identificador.</summary>
         Task<bool> ExistsAsync(Guid fileId);
 
-        /// <summary>Actualiza un registro existente, incluidos estado y fecha de eliminacion. Si no existe lanza InvalidOperationException; no realiza upsert.</summary>
+        /// <summary>Actualiza un registro existente, incluidos estado y fecha de eliminacion. Requiere la Revision leída; una actualización correcta incrementa Revision en el snapshot. Ausencia o conflicto lanza InvalidOperationException; no realiza upsert.</summary>
         Task UpdateAsync(FileMetadata metadata);
 
     }

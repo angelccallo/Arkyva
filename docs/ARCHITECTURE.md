@@ -6,7 +6,7 @@ Las tres bibliotecas usan `netstandard2.0`. Core define los contratos y modelos,
 sin referencias a los proveedores. FileSystem y SqlServer referencian unicamente
 Core, nunca entre si. FileSystem implementa el proveedor físico desde la Fase 2.
 SqlServer implementa persistencia ADO.NET desde la Fase 3; ArkyvaService los coordina mediante sus interfaces desde la Fase 4, sin
-transacciones distribuidas ni recuperación automática.
+transacciones distribuidas; la Fase 5 añade recuperación manual verificada.
 
 ```text
 Arkyva.Storage.FileSystem --> Arkyva.Core <-- Arkyva.Metadata.SqlServer
@@ -44,8 +44,8 @@ Exists considera solo registros activos. List usa Active por defecto y admite
 filtros explícitos de otros estados desde la Fase 3. Update no inserta registros ausentes.
 La eliminación lógica se representa actualizando Status y DeletedUtc. No se define
 una transaccion distribuida ni se garantiza atomicidad entre contenido y metadatos.
-El servicio coordina las llamadas desde la Fase 4; la recuperación queda para la
-Fase 5. Las transiciones SQL se protegen mediante actualizaciones condicionadas.
+El servicio coordina las llamadas desde la Fase 4; la Fase 5 implementa recuperación
+manual con recibo y revisión optimista. Las transiciones SQL se protegen mediante actualizaciones condicionadas.
 
 Decisiones sencillas donde no habia una firma prescrita:
 
@@ -76,7 +76,7 @@ dotnet build Arkyva.sln --configuration Release
 ```
 
 El proyecto net472 referencia las tres bibliotecas y permite comprobar su consumo.
-Las pruebas unitarias del servicio existen desde la Fase 4; la recuperación sigue pendiente; la integración SQL preparada en la Fase 3 requiere un servidor de pruebas;
+Las pruebas unitarias del servicio existen desde la Fase 4; la recuperación manual tiene pruebas desde la Fase 5; la integración SQL preparada en la Fase 3 requiere un servidor de pruebas;
 no se conectan bases de datos ni se realizan operaciones de archivos en estas pruebas.
 La aplicacion de ejemplo, API fluida y publicación de paquetes NuGet quedan para fases
 posteriores. SPECIFICATION.md permanece sin cambios.
@@ -123,7 +123,7 @@ No se agregan tablas de negocio ni un sistema de migraciones automáticas.
 Las transiciones permitidas avanzan desde Pending a Active/Failed/Deleted, desde
 Active a Failed/Deleted y desde Failed a Deleted; Deleted es terminal. Las
 actualizaciones preservan identidad física y fecha de creación; desde la Fase 4
-el tamaño puede finalizarse únicamente durante Pending → Active. La
+la Fase 5 fija tamaño y recibo durante Pending antes de activar, con revisión exacta. La
 paginación usa una transacción corta Serializable para alinear total y elementos.
 Los fallos SQL no se reintentan ni se coordinan con operaciones de archivos.
 
@@ -154,3 +154,35 @@ Las descargas ocultan el stream concreto y liberan su recurso mediante FileConte
 Delete es lógico e idempotente, incluida confirmación de un borrado concurrente.
 Ninguna operación del servicio borra contenido físico. La integración manual y los
 flujos, límites de concurrencia y errores se detallan en [SERVICE.md](SERVICE.md).
+
+## Fase 5: consistencia, recuperación y concurrencia
+
+La decisión vigente se detalla en [RECOVERY.md](RECOVERY.md). Se conservan las
+firmas existentes; FileMetadata añade Revision y CompletionSha256 técnicos.
+IRecoveryMetadataRepository es una capacidad opcional para recibos, activación
+verificada y búsqueda de referencias. SQL la implementa con UPDATE por revisión,
+estado esperado y comprobación de filas afectadas. Las operaciones ordinarias
+incrementan Revision y rechazan snapshots atrasados, incluso para cambios del
+mismo estado: sustituye la política anterior de última escritura aceptada.
+
+V004 añade columnas y restricciones de forma no destructiva. Debe aplicarse
+manualmente con escritores detenidos y sin mezclar binarios de fases anteriores.
+Los Active antiguos siguen legibles; no se inventa evidencia para cargas antiguas.
+
+Upload calcula SHA-256 durante la lectura, exige EOF tras Save, registra recibo y
+tamaño mientras Pending y luego activa. Fallos inciertos conservan contenido y
+causas. Un repositorio externo sin la capacidad opcional mantiene el flujo previo,
+sin recibo recuperable y con obligación propia de cumplir concurrencia equivalente.
+
+StorageRecoveryService verifica tamaño/hash por streaming antes de intentar
+Pending/Failed → Active. Un Pending con recibo inconsistente puede pasar a Failed;
+sin recibo se omite porque podría seguir ejecutándose. No hay leases ni reintentos
+que puedan reactivar Deleted. DryRun es predeterminado y no hace escrituras.
+
+IStorageDiagnostics permite inventario físico acotado. La recuperación no elimina
+archivos definitivos NI temporales: edad/desbloqueo no prueba abandono en todas
+las instancias. Una solicitud CleanTemporaries genera diagnóstico de incertidumbre.
+Es una limitación intencional permitida por el alcance conservador, no un limpiador
+seguro implementado. El escritor conserva la limpieza de su propio temporal.
+
+No se añadieron dependencias, tareas programadas ni procesos. Fase 6 no implementada.

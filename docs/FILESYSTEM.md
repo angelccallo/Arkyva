@@ -134,3 +134,13 @@ Resultado verificado de esta fase: compilación Release de los cinco proyectos c
 cero errores y cero advertencias; 21 comprobaciones FileSystem y 9 de contratos
 satisfactorias ejecutadas sobre net472 en Windows. No se modificaron los contratos
 de Core, SPECIFICATION.md ni el proyecto SQL Server.
+
+## Inventario de Fase 5
+
+FileSystemStorageProvider implementa la capacidad opcional IStorageDiagnostics.
+InspectAsync realiza un inventario acotado de solo lectura, identifica el patrón
+exacto de temporales y omite enlaces. No determina abandono ni borra archivos.
+StorageRecoveryService convierte sus claves técnicas en referencias opacas para
+el diagnóstico; no publicar StorageInventory directamente al consumidor.
+Consultar [RECOVERY.md](RECOVERY.md) para conservación de temporales antiguos,
+operaciones activas y contenido definitivo sin referencia confirmada.
