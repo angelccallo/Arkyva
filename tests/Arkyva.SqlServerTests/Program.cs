@@ -145,8 +145,13 @@ internal static class Program
         Check((await repository.GetAsync(longKey.FileId)).StorageKey.Length == 1000, "Maximum provider/key lengths supported by unique hash index");
 
         file.Status = FileStatus.Active;
+        file.SizeBytes = 321;
         await repository.UpdateAsync(file);
-        Check(await repository.ExistsAsync(file.FileId), "Pending to Active");
+        Check(await repository.ExistsAsync(file.FileId) && (await repository.GetAsync(file.FileId)).SizeBytes == 321,
+            "Pending to Active finalizes the measured size");
+        file.SizeBytes = 999;
+        await Throws<InvalidOperationException>(() => repository.UpdateAsync(file));
+        file.SizeBytes = 321;
         file.OriginalName = "renamed.pdf";
         await repository.UpdateAsync(file);
         Check((await repository.GetAsync(file.FileId)).OriginalName == file.OriginalName, "Descriptive metadata update");

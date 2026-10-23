@@ -118,7 +118,7 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
             }
         }
 
-        /// <summary>Updates descriptive metadata and state while preserving identity, physical reference, size and creation time.</summary>
+        /// <summary>Updates descriptive metadata and state while preserving identity, physical reference and creation time; size can be finalized only during Pending to Active.</summary>
         /// <remarks>Pending may become Active, Failed or Deleted; Active may become Failed or Deleted; Failed may become Deleted. Deleted is terminal. Same-state updates are allowed.</remarks>
         /// <exception cref="InvalidOperationException">The record is missing, a transition is forbidden, or immutable values conflict.</exception>
         public async Task UpdateAsync(FileMetadata metadata)
@@ -129,11 +129,11 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
             {
                 command.CommandText = @"UPDATE arkyva.Files SET
 OriginalName = @OriginalName, Extension = @Extension, MimeType = @MimeType,
-Status = @Status, DeletedUtc = @DeletedUtc, UpdatedUtc = SYSUTCDATETIME()
+Status = @Status, SizeBytes = @SizeBytes, DeletedUtc = @DeletedUtc, UpdatedUtc = SYSUTCDATETIME()
 WHERE FileId = @FileId AND ProviderId = @ProviderId COLLATE Latin1_General_100_BIN2
 AND DATALENGTH(ProviderId) = DATALENGTH(@ProviderId)
 AND StorageKey = @StorageKey COLLATE Latin1_General_100_BIN2 AND DATALENGTH(StorageKey) = DATALENGTH(@StorageKey)
-AND SizeBytes = @SizeBytes AND CreatedUtc = @CreatedUtc
+AND (SizeBytes = @SizeBytes OR (Status = 'Pending' AND @Status = 'Active')) AND CreatedUtc = @CreatedUtc
 AND ((Status = @Status AND (DeletedUtc = @DeletedUtc OR (DeletedUtc IS NULL AND @DeletedUtc IS NULL)))
  OR (Status = 'Pending' AND @Status IN ('Active', 'Failed', 'Deleted'))
  OR (Status = 'Active' AND @Status IN ('Failed', 'Deleted'))

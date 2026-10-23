@@ -126,8 +126,10 @@ No hay cadenas fijas ni credenciales en el código del proveedor.
   existencia en cualquier estado, usar GetAsync.
 - ListAsync devuelve página y TotalCount filtrado. No carga el repositorio completo.
 - UpdateAsync actualiza nombre, extensión, MIME y estado/fecha de eliminación.
-  Identificador, tamaño, proveedor, clave y fecha de creación deben coincidir con
-  los valores persistidos. No es un mecanismo para sustituir contenido físico.
+  Identificador, proveedor, clave y fecha de creación deben coincidir con
+  los valores persistidos. Desde la Fase 4, el tamaño puede fijarse durante
+  Pending → Active para finalizar cargas no posicionables; en otros estados
+  debe coincidir con el valor persistido. No es un mecanismo para sustituir contenido físico.
   Un registro inexistente no se inserta.
 
 ## Estados y concurrencia
@@ -159,8 +161,8 @@ ocultos tras fallos de red o conflictos.
 FileQuery conserva sus propiedades y añade filtros opcionales FileId, Status,
 CreatedFromUtc (inclusivo) y CreatedBeforeUtc (exclusivo). Status es Active por
 defecto para preservar el comportamiento de la Fase 1; null permite consultar
-todos los estados en el repositorio de metadatos. El futuro servicio del consumidor
-seguirá limitando sus listados a Active, como establece IArkyvaService.
+todos los estados en el repositorio de metadatos. Desde la Fase 4, el servicio usa Active por defecto y admite filtros explícitos
+de otros estados para consultar metadatos; descargar contenido sigue exigiendo Active.
 
 Nombre y extensión son exactos y distinguen mayúsculas y espacios finales. Se
 utiliza colación BIN2 y DATALENGTH para evitar la equivalencia de espacios finales
@@ -229,5 +231,5 @@ Resultado real: compilación Release sin errores ni advertencias; 58 comprobacio
 offline SQL, 9 de contratos y 21 FileSystem satisfactorias. Las pruebas de integración
 SQL no se ejecutaron; quedan pendientes de validar el proveedor contra un servidor real.
 
-La integración con el servicio principal, coordinación de fallos entre SQL y archivos,
-configuración fluida y recuperación quedan fuera de esta fase.
+La integración mediante ArkyvaService se implementó en la Fase 4; ver [SERVICE.md](SERVICE.md).
+La configuración fluida, reconciliación y recuperación automática siguen pendientes.

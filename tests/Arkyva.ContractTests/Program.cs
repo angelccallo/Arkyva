@@ -14,6 +14,7 @@ internal static class Program
                 Check(contract.IsInterface && contract.GetMethods().All(m => typeof(Task).IsAssignableFrom(m.ReturnType)), contract.Name + " asincrono");
             Check(!typeof(Arkyva.Core.Models.FileInfo).GetProperties().Any(p => p.Name == "StorageKey" || p.Name == "ProviderId"), "API sin detalles fisicos");
             Check(typeof(IArkyvaService).GetMethod("GetInfoAsync").ReturnType == typeof(Task<Arkyva.Core.Models.FileInfo>), "API devuelve metadatos publicos");
+            Check(typeof(IArkyvaService).GetMethod("DownloadAsync").ReturnType == typeof(Task<FileContent>) && typeof(IDisposable).IsAssignableFrom(typeof(FileContent)), "Descarga con contenido y metadatos desechables");
             Check(typeof(IStorageProvider).GetMethod("ReadAsync").ReturnType == typeof(Task<System.IO.Stream>), "Lectura mediante stream");
             Check(new FileMetadata().Status == FileStatus.Pending, "Estado inicial no publicado");
             Check(new FileQuery().PageNumber == 1 && new FileQuery().PageSize > 0, "Paginacion inicial valida");

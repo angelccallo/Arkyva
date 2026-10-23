@@ -5,8 +5,8 @@
 Las tres bibliotecas usan `netstandard2.0`. Core define los contratos y modelos,
 sin referencias a los proveedores. FileSystem y SqlServer referencian unicamente
 Core, nunca entre si. FileSystem implementa el proveedor físico desde la Fase 2.
-SqlServer implementa persistencia ADO.NET desde la Fase 3; todavía no hay servicio
-que coordine metadatos y contenido físico.
+SqlServer implementa persistencia ADO.NET desde la Fase 3; ArkyvaService los coordina mediante sus interfaces desde la Fase 4, sin
+transacciones distribuidas ni recuperación automática.
 
 ```text
 Arkyva.Storage.FileSystem --> Arkyva.Core <-- Arkyva.Metadata.SqlServer
@@ -16,7 +16,8 @@ Arkyva.Storage.FileSystem --> Arkyva.Core <-- Arkyva.Metadata.SqlServer
 
 - `src/Arkyva.Core/Interfaces`: API del consumidor, almacenamiento y metadatos.
 - `src/Arkyva.Core/Models`: informacion publica, registro tecnico, estado y paginacion.
-- `src/Arkyva.Core/Services` y `Exceptions`: espacios reservados sin implementaciones.
+- `src/Arkyva.Core/Services` y `Exceptions`: servicio principal, streams internos
+  y excepciones públicas de almacenamiento, metadatos y disponibilidad.
 - `src/Arkyva.Storage.FileSystem`: proveedor físico con publicación temporal segura.
 - `src/Arkyva.Metadata.SqlServer/Repositories` y `Scripts`: repositorio ADO.NET y
   scripts versionados del esquema `arkyva`, aplicados explícitamente por el operador.
@@ -25,10 +26,11 @@ Arkyva.Storage.FileSystem --> Arkyva.Core <-- Arkyva.Metadata.SqlServer
 ## Contratos y decisiones
 
 `IArkyvaService` conserva las seis operaciones solicitadas. Recibe streams y nombres
-originales y devuelve GUID, streams o metadatos publicos. `FileInfo` no expone claves,
+originales y devuelve GUID, FileContent desechable o metadatos públicos. `FileInfo` no expone claves,
 rutas ni identificadores del proveedor. `FileMetadata` extiende esos datos para el
 contrato de persistencia; no es el tipo devuelto por la API del consumidor.
-La herencia permite reutilizar los campos sin duplicarlos; no hay mapeo implementado.
+La herencia permite reutilizar los campos; el servicio copia explícitamente a DTOs
+públicos de tipo FileInfo para no exponer propiedades técnicas por serialización.
 
 `IStorageProvider` conserva exactamente las cuatro firmas minimas de la especificacion.
 Solo administra contenido fisico. Save no sobrescribe y unicamente publica contenido
@@ -40,21 +42,21 @@ una lectura inexistente produce FileNotFoundException.
 actualizacion. Get permite consultar cualquier estado para la futura coordinacion;
 Exists considera solo registros activos. List usa Active por defecto y admite
 filtros explícitos de otros estados desde la Fase 3. Update no inserta registros ausentes.
-La eliminacion logica se representara actualizando Status y DeletedUtc. No se define
+La eliminación lógica se representa actualizando Status y DeletedUtc. No se define
 una transaccion distribuida ni se garantiza atomicidad entre contenido y metadatos.
-La coordinación y recuperación se resolverán al implementar los servicios; las
-transiciones SQL ya se protegen mediante actualizaciones condicionadas en la Fase 3.
+El servicio coordina las llamadas desde la Fase 4; la recuperación queda para la
+Fase 5. Las transiciones SQL se protegen mediante actualizaciones condicionadas.
 
 Decisiones sencillas donde no habia una firma prescrita:
 
-- GetInfo devuelve null para archivos ausentes o no activos; Download lanza
-  FileNotFoundException. Delete logico es idempotente y no implica borrado fisico.
+- GetInfo devuelve null para archivos ausentes o no activos; Download distingue
+  inexistencia (FileNotFoundException derivada) de estado no disponible. Delete logico es idempotente y no implica borrado fisico.
 - Paginas basadas en uno, tamano inicial 50; numeros o tamanos no positivos deberan
   rechazarse. Filtros opcionales de nombre original y extension exactos, combinados
   con AND y comparacion ordinal sensible a mayusculas. Orden estable ascendente
   por CreatedUtc y FileId. TotalCount cuenta todos los resultados antes de paginar.
 - Pending es el estado inicial, seguido de Active, Deleted o Failed segun la operacion.
-  Esto solo define vocabulario: no implementa transiciones ni recuperacion.
+  Las transiciones están protegidas en SQL y se coordinan en el servicio; no hay recuperación automática.
 - Modelos simples mutables. Las validaciones pertenecen a las futuras implementaciones;
   las propiedades no realizan E/S ni validacion automatica en esta fase.
 - En la Fase 1, sin paquetes explicitos en bibliotecas. El SDK restaura el paquete implicito de
@@ -74,8 +76,7 @@ dotnet build Arkyva.sln --configuration Release
 ```
 
 El proyecto net472 referencia las tres bibliotecas y permite comprobar su consumo.
-Las futuras pruebas unitarias de servicios y recuperación se añadirán al implementar
-los servicios; la integración SQL preparada en la Fase 3 requiere un servidor de pruebas;
+Las pruebas unitarias del servicio existen desde la Fase 4; la recuperación sigue pendiente; la integración SQL preparada en la Fase 3 requiere un servidor de pruebas;
 no se conectan bases de datos ni se realizan operaciones de archivos en estas pruebas.
 La aplicacion de ejemplo, API fluida y publicación de paquetes NuGet quedan para fases
 posteriores. SPECIFICATION.md permanece sin cambios.
@@ -98,8 +99,8 @@ tras cerrar un temporal exclusivo en el mismo directorio. No se usan bloqueos
 estáticos. El árbol debe estar protegido contra cambios externos no confiables.
 
 [Documentación del proveedor](FILESYSTEM.md): uso, excepciones, permisos,
-pruebas y límites de atomicidad y durabilidad en SMB. Las decisiones de paginación,
-estados y metadatos de la Fase 1 permanecen pendientes de implementación.
+pruebas y límites de atomicidad y durabilidad en SMB. Los metadatos y la coordinación
+del servicio se implementan en las fases siguientes descritas abajo.
 
 ## Fase 3: persistencia de metadatos
 
@@ -110,7 +111,8 @@ UpdateAsync representa también cambios de estado y eliminación lógica.
 Ajuste mínimo justificado de Core: FileQuery añade FileId, Status y límites de
 creación UTC; Status conserva Active por defecto y null solicita todos los estados.
 Se actualiza la documentación de ListAsync para reflejarlo, sin cambiar su firma.
-La API del consumidor permanece restringida a archivos activos.
+La descarga del consumidor permanece restringida a archivos activos; el listado
+admite estados explícitos desde la Fase 4 y sigue siendo Active por defecto.
 
 Microsoft.Data.SqlClient 6.1.7 es la única dependencia directa nueva del proveedor.
 Cada operación libera conexión y comandos; el driver gestiona el pooling. La tabla
@@ -120,7 +122,8 @@ No se agregan tablas de negocio ni un sistema de migraciones automáticas.
 
 Las transiciones permitidas avanzan desde Pending a Active/Failed/Deleted, desde
 Active a Failed/Deleted y desde Failed a Deleted; Deleted es terminal. Las
-actualizaciones preservan identidad física, tamaño y fecha de creación. La
+actualizaciones preservan identidad física y fecha de creación; desde la Fase 4
+el tamaño puede finalizarse únicamente durante Pending → Active. La
 paginación usa una transacción corta Serializable para alinear total y elementos.
 Los fallos SQL no se reintentan ni se coordinan con operaciones de archivos.
 
@@ -128,3 +131,26 @@ Los fallos SQL no se reintentan ni se coordinan con operaciones de archivos.
 permisos y ejecución de la integración en una base nueva aislada. La compilación y
 las 58 validaciones offline se ejecutaron; la integración SQL sigue pendiente por
 falta de servidor configurado. No se modificó FileSystem ni SPECIFICATION.md.
+
+## Fase 4: servicio principal
+
+ArkyvaService implementa las seis operaciones mediante las interfaces existentes y
+un identificador estable de proveedor configurado en el constructor. No referencia
+paquetes SQL, System.IO.File ni los proveedores concretos.
+
+Ajustes públicos mínimos justificados: DownloadAsync devuelve FileContent (Info y
+Content, IDisposable) para incluir nombre, MIME y tamaño con el stream. ListAsync
+admite estados explícitos y null para todos, conservando Active por defecto. No se
+duplican DTOs ni interfaces. GetInfo conserva null para ausentes o no activos.
+
+Upload crea Pending con tamaño provisional cero, transfiere mediante un stream
+contador y fija tamaño/Active después de Save. SQL permite finalizar tamaño solo
+en esa transición; fuera de ella sigue inmutable. No cambia el esquema ni FileSystem.
+Un fallo de Save intenta Failed; un fallo de activación no provoca borrado físico
+ni degradación que pueda contradecir una confirmación SQL tardía.
+
+Las excepciones públicas tienen mensajes seguros y causas internas para diagnóstico.
+Las descargas ocultan el stream concreto y liberan su recurso mediante FileContent.
+Delete es lógico e idempotente, incluida confirmación de un borrado concurrente.
+Ninguna operación del servicio borra contenido físico. La integración manual y los
+flujos, límites de concurrencia y errores se detallan en [SERVICE.md](SERVICE.md).
