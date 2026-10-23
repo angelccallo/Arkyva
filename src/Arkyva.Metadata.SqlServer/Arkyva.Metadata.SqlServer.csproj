@@ -1,12 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Description>Parameterized SQL Server metadata persistence, optimistic concurrency and versioned schema scripts for Arkyva.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../Arkyva.Core/Arkyva.Core.csproj" /></ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.7" />
-    <None Update="Scripts/*.sql" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles/any/any/Scripts" />
+    <!-- Security floor for the driver's transitive CMS/PKCS dependency (October 2026 advisories). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
+    <None Update="Scripts/*.sql" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles/any/any/Scripts/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

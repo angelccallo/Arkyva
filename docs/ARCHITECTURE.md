@@ -223,3 +223,56 @@ Verificación Fase 6: once proyectos compilados en Release sin errores/advertenc
 La consola carga configuración desde entorno y App.config en el runtime disponible.
 La integración SQL/E2E no se ejecutó sin conexión de pruebas; no se afirma haber
 validado IIS, SMB real ni una instalación aislada del runtime 4.7.2 exacto.
+
+## Fase 7: validación y distribución preview
+
+Se distribuyen los cuatro proyectos existentes como paquetes 1.0.0-preview.1, sin
+nuevas fachadas, cambios de contratos ni funcionalidades documentales. El proyecto
+principal Arkyva depende de los tres paquetes de implementación/contratos existentes.
+Los metadatos reales se centralizan en src/Directory.Build.props y todos incluyen
+licencia MIT, README y documentación XML. La ruta empaquetada de scripts SQL se
+corrigió para no duplicar Scripts. La dependencia transitiva Pkcs se fija a 8.0.2
+por avisos de seguridad, sin modificar el comportamiento del servicio.
+
+Las suites ejecutables se consolidan mediante scripts/Test.ps1; Audit.ps1 exige
+consulta satisfactoria del feed y Test-Packages.ps1 inspecciona ZIP/manifiestos y
+restaura un consumidor net472 con caché aislada fuera de su árbol de compilación.
+Su única dependencia de producto es PackageReference Arkyva. Se valida también
+contra SQL real dentro de la base nueva del runner, sin referencias a proyectos.
+La Fase 7 añade al fixture la verificación de recuperación con SQL/FileSystem reales.
+
+GitHub Actions prepara compilación, auditoría, pruebas y paquetes en Windows;
+SQL externo es exclusivamente opt-in manual con entorno protegido. No hay publicación,
+release ni push automático. La ejecución remota del workflow queda pendiente.
+La validación SQL/E2E omitida en fases anteriores se ejecuta en esta fase mediante
+LocalDB temporal aislado; los resultados y riesgos actuales están en
+[RELEASE_READINESS.md](RELEASE_READINESS.md). El procedimiento de nuevos proveedores
+sigue siendo implementar IStorageProvider, usar claves/streams y definir una identidad
+estable; metadatos externos deben cumplir revisión y, opcionalmente, recibos mediante
+IRecoveryMetadataRepository. Probar cada proveedor independientemente y componerlo
+manualmente con ArkyvaService sin cambiar Core ni ampliar el builder para esta entrega.
+
+Verificación vigente de Fase 7: 226 comprobaciones en seis suites y 14 internas en
+el consumidor NuGet, con cero fallos; SQL Server LocalDB real, FileSystem local y
+recuperación verificada. La instancia temporal se eliminó. GitHub Actions, IIS,
+SMB y runtime 4.7.2 exacto no se presentan como validados. Ver informe para límites
+funcionales pendientes y procedencia de los paquetes locales.
+
+## Fase 8: publicación pública manual, aún no ejecutada
+
+publish-nuget.yml solo admite workflow_dispatch y distingue validate de publish.
+Ambos CI/workflow comparten Validate-Packages.ps1; no se duplica la implementación
+de compilación/pruebas/empaquetado. La versión se proporciona explícitamente a MSBuild
+y al consumidor temporal; se conserva 1.0.0-preview.1 como versión inicial.
+
+La publicación requiere publish=true, repositorio/branch originales, environment
+nuget-publishing aprobado y policy NuGet coincidente. Únicamente publish recibe
+id-token:write y NuGet/login@v1 para angelccallo. Verifica hashes/commit, cuatro IDs
+y ausencia de versiones existentes antes de obtener la credencial temporal; publica
+Core, FileSystem, SqlServer y Arkyva, esperando indexación entre pasos. No ignora
+conflictos, no cambia IDs, no solicita API Keys permanentes y no crea tags/releases.
+
+No se modifica lógica de archivos, metadatos, recuperación, contratos ni esquema SQL.
+La consulta pública no detectó versiones de los cuatro IDs, pero no reserva nombres.
+La configuración de cuentas/policies y la primera ejecución pública permanecen
+manuales y no se hicieron en esta tarea. Ver [NUGET_PUBLISHING.md](NUGET_PUBLISHING.md).

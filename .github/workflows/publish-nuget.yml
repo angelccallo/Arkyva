@@ -1,0 +1,132 @@
+name: Publish Arkyva to NuGet.org (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Canonical SemVer to validate and optionally publish'
+        required: true
+        type: string
+        default: '1.0.0-preview.1'
+      publish:
+        description: 'Explicit authorization to publish after environment approval (false = validate only)'
+        required: true
+        type: boolean
+        default: false
+      allow_existing_ids:
+        description: 'For later versions only: I confirmed angelccallo owns the existing package IDs'
+        required: true
+        type: boolean
+        default: false
+      allow_stable:
+        description: 'I explicitly approved stable readiness; never needed for preview'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arkyva-nuget-publication
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      ALLOW_EXISTING_IDS: ${{ inputs.allow_existing_ids }}
+      ALLOW_STABLE: ${{ inputs.allow_stable }}
+      REQUEST_PUBLISH: ${{ inputs.publish }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: Validate origin, version and public availability
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:REQUEST_PUBLISH -eq 'true' -and ($env:GITHUB_REPOSITORY -cne 'angelccallo/Arkyva' -or $env:GITHUB_REF -cne 'refs/heads/main')) {
+            throw 'Public writes are restricted to the original repository main branch.'
+          }
+          if ((git status --porcelain).Length -gt 0) { throw 'Release source checkout must be clean.' }
+          ./scripts/Check-NuGetAvailability.ps1 -Version $env:RELEASE_VERSION -AllowExistingIds:($env:ALLOW_EXISTING_IDS -eq 'true') -AllowStable:($env:ALLOW_STABLE -eq 'true')
+      - name: Restore, build, audit, test, pack and install clean net472 consumer
+        run: ./scripts/Validate-Packages.ps1 -Version $env:RELEASE_VERSION -AllowStable:($env:ALLOW_STABLE -eq 'true')
+      - name: Verify exact candidate and source commit
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/Test-Packages.ps1 -Version $env:RELEASE_VERSION -InspectOnly -ExpectedRepositoryCommit $env:GITHUB_SHA
+          Import-Module ./scripts/NuGetPublishing.psm1 -Force
+          Assert-ArtifactManifest -PackageDirectory artifacts/packages -ManifestPath artifacts/package-inspection.json -Version $env:RELEASE_VERSION
+      - uses: actions/upload-artifact@v6
+        with:
+          name: nuget-candidate
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/package-inspection.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nuget-validation-reports
+          path: |
+            artifacts/audit.json
+            artifacts/test-results/summary.json
+            artifacts/nuget-availability.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    if: inputs.publish && github.repository == 'angelccallo/Arkyva' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: windows-2022
+    timeout-minutes: 55
+    environment: nuget-publishing
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      ALLOW_EXISTING_IDS: ${{ inputs.allow_existing_ids }}
+      ALLOW_STABLE: ${{ inputs.allow_stable }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/download-artifact@v6
+        with:
+          name: nuget-candidate
+          path: artifacts
+      - name: Revalidate approved artifacts and version immediately before OIDC
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module ./scripts/NuGetPublishing.psm1 -Force
+          Assert-ArtifactManifest -PackageDirectory artifacts/packages -ManifestPath artifacts/package-inspection.json -Version $env:RELEASE_VERSION
+          ./scripts/Test-Packages.ps1 -Version $env:RELEASE_VERSION -InspectOnly -ExpectedRepositoryCommit $env:GITHUB_SHA
+          ./scripts/Check-NuGetAvailability.ps1 -Version $env:RELEASE_VERSION -AllowExistingIds:($env:ALLOW_EXISTING_IDS -eq 'true') -AllowStable:($env:ALLOW_STABLE -eq 'true')
+      - name: NuGet Trusted Publishing login
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: angelccallo
+      - name: Publish dependencies then main package; wait for indexing
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: ./scripts/Push-NuGet.ps1 -Version $env:RELEASE_VERSION -AllowExistingIds:($env:ALLOW_EXISTING_IDS -eq 'true') -AllowStable:($env:ALLOW_STABLE -eq 'true')

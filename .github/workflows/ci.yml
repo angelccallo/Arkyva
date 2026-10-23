@@ -1,0 +1,80 @@
+name: Validate Arkyva preview
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_sql_integration:
+        description: 'Run isolated integration on an explicitly configured test SQL Server'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: Validate and pack without publishing
+        run: ./scripts/Validate-Packages.ps1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: arkyva-preview-validation
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/audit.json
+            artifacts/package-inspection.json
+            artifacts/test-results/summary.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  sql-integration:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_sql_integration
+    needs: validate
+    runs-on: windows-2022
+    environment: sql-integration
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build
+        run: dotnet build Arkyva.sln -c Release -warnaserror
+      - name: Pack local feed
+        run: dotnet pack Arkyva.sln -c Release --no-build --no-restore -o artifacts/packages
+      - name: Install clean package consumer
+        run: ./scripts/Test-Packages.ps1
+      - name: Run explicit isolated SQL and installed-package E2E
+        env:
+          ARKYVA_SQL_TEST_CONNECTION: ${{ secrets.ARKYVA_SQL_TEST_CONNECTION }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ARKYVA_SQL_TEST_CONNECTION)) { throw 'Configure the protected test SQL connection first.' }
+          $env:ARKYVA_PACKAGE_CONSUMER_EXE = (Get-Content artifacts/package-smoke/latest.txt -Raw).Trim()
+          ./scripts/Test.ps1 -RunSqlIntegration
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: arkyva-isolated-sql-validation
+          path: artifacts/test-results/summary.json
+          retention-days: 14
+          if-no-files-found: warn

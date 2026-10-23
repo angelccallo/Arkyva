@@ -18,8 +18,8 @@ En este repositorio, agregar UNA referencia al proyecto de composición:
 No es necesario referenciar ni construir tipos concretos de proveedores desde el
 código consumidor. El proyecto Arkyva referencia transitivamente Core, FileSystem y
 SqlServer. No añade paquetes externos: restaura los que ya usa el proveedor SQL,
-incluido Microsoft.Data.SqlClient 6.1.7 y sus dependencias. No se ha publicado un
-paquete NuGet; empaquetado y distribución no forman parte de esta fase.
+incluido Microsoft.Data.SqlClient 6.1.7 y sus dependencias. La Fase 7 genera cuatro paquetes preview locales; no se publicaron en NuGet.org.
+Véase [PACKAGING.md](PACKAGING.md) para instalación sin referencias a proyectos.
 
 ```powershell
 dotnet build Arkyva.sln --configuration Release
@@ -284,13 +284,13 @@ Un fallo con conexión configurada es un fallo, no SKIP.
 
 Sin esa variable se ejecutan las validaciones offline y se muestra SKIP para SQL
 y E2E. Los ejecutables de pruebas no son descubribles mediante dotnet test.
-No se ha validado IIS, SMB real ni SQL/E2E en este entorno sin conexión de pruebas.
+La Fase 7 valida SQL/E2E local mediante SQL Server LocalDB; IIS y SMB real siguen pendientes.
 Se confirmó compilación net472 y ejecución de configuración en el runtime .NET
 Framework disponible; no se afirma que se probó una instalación exacta 4.7.2 aislada
 ni todas las combinaciones de ensamblados de una aplicación ASP.NET existente.
 
-La Fase 7 no se implementa: no se publica NuGet, no se agrega un dashboard ni se
-modifican servicios, proveedores, contratos o esquema SQL de las fases anteriores.
+La Fase 7 prepara y verifica paquetes locales; no los publica ni agrega dashboard.
+Los contratos y esquema SQL se conservan. Véase el informe de preparación vigente.
 
 Resultado real de Fase 6: Release de los once proyectos con cero errores y cero
 advertencias; 11 escenarios de configuración, 26 de recuperación, 41 del servicio,

@@ -1,8 +1,11 @@
 using System;
 using System.Data;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Arkyva;
 using Arkyva.Core.Exceptions;
+using Arkyva.Core.Services;
+using Arkyva.Storage.FileSystem;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -121,6 +124,7 @@ internal static class Program
                     checks++; Console.WriteLine("PASS: Versioned scripts and repeated installation");
                     await RepositoryChecks(builder.ConnectionString, databaseConnection);
                     await EndToEndChecks(builder.ConnectionString);
+                    await InstalledPackageChecks(builder.ConnectionString);
                 }
             }
             finally
@@ -285,6 +289,24 @@ internal static class Program
             Check(concurrent.Distinct().Count() == 4 && parallel.All(x => x.Status == FileStatus.Active && x.SizeBytes == 1 && x.CompletionSha256 != null),
                 "E2E same built instance supports concurrent uploads");
             await Task.WhenAll(concurrent.Select(service.DeleteAsync));
+            // Simulate interruption after publication + durable receipt but before activation.
+            var interrupted = new FileMetadata { FileId = Guid.NewGuid(), OriginalName = "recover.bin", Extension = ".bin",
+                MimeType = "application/octet-stream", ProviderId = "FileSystem", StorageKey = Guid.NewGuid().ToString("N") + ".bin",
+                Status = FileStatus.Pending, CreatedUtc = DateTime.UtcNow.AddHours(-3) };
+            var storage = new FileSystemStorageProvider(root);
+            await repository.AddAsync(interrupted);
+            using (var source = new MemoryStream(payload)) await storage.SaveAsync(interrupted.StorageKey, source);
+            Check(await repository.TryRecordUploadAsync(interrupted, payload.Length, expectedHash), "Real recovery interruption has a durable receipt");
+            var recovery = new StorageRecoveryService(storage, repository, "FileSystem");
+            var preview = await recovery.RecoverAsync(new RecoveryOptions { DryRun = true, InspectStorage = false });
+            Check(preview.ProposedRecoveries == 1 && (await repository.GetAsync(interrupted.FileId)).Status == FileStatus.Pending,
+                "Real SQL/FileSystem recovery DryRun does not mutate Pending");
+            var applied = await recovery.RecoverAsync(new RecoveryOptions { DryRun = false, InspectStorage = false });
+            Check(applied.RecordsRecovered == 1 && (await repository.GetAsync(interrupted.FileId)).Status == FileStatus.Active,
+                "Real SQL/FileSystem recovery verifies and activates content");
+            Check((await recovery.RecoverAsync(new RecoveryOptions { DryRun = false, InspectStorage = false })).RecordsRecovered == 0,
+                "Real recovery repeated safely");
+            await service.DeleteAsync(interrupted.FileId);
         }
         finally
         {
@@ -294,6 +316,24 @@ internal static class Program
             if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Path.GetFileName(full).StartsWith("Arkyva-e2e-", StringComparison.Ordinal))
                 throw new Exception("Unsafe E2E cleanup target");
             Directory.Delete(full, true);
+        }
+    }
+
+    private static async Task InstalledPackageChecks(string isolatedConnectionString)
+    {
+        string executable = Environment.GetEnvironmentVariable("ARKYVA_PACKAGE_CONSUMER_EXE");
+        if (string.IsNullOrWhiteSpace(executable)) return;
+        if (!Path.IsPathRooted(executable) || !File.Exists(executable)) throw new ArgumentException("Invalid package consumer path.");
+        var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        start.EnvironmentVariables["ARKYVA_PACKAGE_TEST_CONNECTION"] = isolatedConnectionString;
+        using (var process = Process.Start(start))
+        {
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> error = process.StandardError.ReadToEndAsync();
+            await Task.WhenAll(output, error);
+            process.WaitForExit();
+            Console.Write(await output); Console.Error.Write(await error);
+            Check(process.ExitCode == 0, "Installed NuGet consumer real SQL/FileSystem E2E");
         }
     }
 
