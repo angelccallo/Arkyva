@@ -39,6 +39,8 @@ jobs:
             artifacts/audit.json
             artifacts/package-inspection.json
             artifacts/test-results/summary.json
+            artifacts/test-results/standard-summary.json
+            artifacts/dependency-reports/*.json
           retention-days: 14
           if-no-files-found: warn
 
@@ -71,10 +73,11 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:ARKYVA_SQL_TEST_CONNECTION)) { throw 'Configure the protected test SQL connection first.' }
           $env:ARKYVA_PACKAGE_CONSUMER_EXE = (Get-Content artifacts/package-smoke/latest.txt -Raw).Trim()
           ./scripts/Test.ps1 -RunSqlIntegration
+          ./scripts/Test-NetStandard.ps1 -RunSqlIntegration
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: arkyva-isolated-sql-validation
-          path: artifacts/test-results/summary.json
+          path: artifacts/test-results/*.json
           retention-days: 14
           if-no-files-found: warn

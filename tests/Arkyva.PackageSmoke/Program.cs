@@ -6,6 +6,15 @@ using Arkyva;
 using Arkyva.Core.Exceptions;
 using Arkyva.Core.Interfaces;
 using Arkyva.Core.Models;
+using System.ServiceModel;
+
+// Framework reference only: no WCF dependency is added to any Arkyva library.
+[ServiceContract]
+public interface IPackageWcfSmoke
+{
+    [OperationContract]
+    Task<Guid> UploadAsync(string originalName, string base64);
+}
 
 internal static class Program
 {
@@ -25,6 +34,8 @@ internal static class Program
             IArkyvaService service = ArkyvaBuilder.Create().UseSqlServer(configured ??
                 "Data Source=invalid.example;Initial Catalog=package_validation;Integrated Security=True;Connect Timeout=1").UseFileSystem(root).Build();
             Check(service != null && !(service is IDisposable), "Build from NuGet on net472");
+            Check(typeof(IPackageWcfSmoke).GetCustomAttributes(typeof(ServiceContractAttribute), false).Length == 1,
+                "WCF contract and public Arkyva API compile together on net472");
             await Throws<InvalidOperationException>(() => Task.FromResult(ArkyvaHost.Current));
             ArkyvaHost.Configure(options =>
             {

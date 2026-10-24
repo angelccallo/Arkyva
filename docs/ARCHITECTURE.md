@@ -2,6 +2,20 @@
 
 ## Alcance y dependencias
 
+Desde preview.3 (Fase 11) las cuatro bibliotecas compilan para net472 y netstandard2.0.
+Las descripciones por fase de abajo conservan sus decisiones históricas. La API,
+dependencias entre proyectos y ciclo de vida de ArkyvaHost permanecen iguales.
+Solo el proveedor ADO.NET interno depende del target: Framework System.Data.SqlClient
+en net472; Microsoft.Data.SqlClient 6.1.7/Pkcs 8.0.2 en netstandard2.0. No se agrega
+otro proveedor de almacenamiento ni una abstracción pública para SqlClient.
+
+Un #if NET472 selecciona el namespace interno; consultas, parámetros, async,
+transacciones y revisión optimista se compilan desde el mismo código. El constructor
+nativo conserva Encrypt=True cuando se omite, traduce Mandatory/Optional a sus
+equivalentes booleanos y rechaza Strict sin degradación. No cambia SQL ni el esquema.
+La reducción de dependencias se valida desde los paquetes instalados, no por asumir
+que lib/net472 basta. Ver [DEPENDENCIES.md](DEPENDENCIES.md) para resultados y riesgos.
+
 Las cuatro bibliotecas usan `netstandard2.0` (incluido el proyecto de composición Arkyva de la Fase 6). Core define los contratos y modelos,
 sin referencias a los proveedores. FileSystem y SqlServer referencian unicamente
 Core, nunca entre si. FileSystem implementa el proveedor físico desde la Fase 2.

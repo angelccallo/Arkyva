@@ -5,7 +5,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Arkyva.Core.Interfaces;
 using Arkyva.Core.Models;
+#if NET472
+using System.Data.SqlClient;
+#else
 using Microsoft.Data.SqlClient;
+#endif
 
 namespace Arkyva.Metadata.SqlServer.Repositories
 {
@@ -28,7 +32,26 @@ WHERE (@FileId IS NULL OR FileId = @FileId)
         public SqlServerMetadataRepository(string connectionString)
         {
             if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("A connection string is required.", nameof(connectionString));
+#if NET472
+            // Framework SqlClient otherwise defaults Encrypt to false. Preserve the
+            // existing Microsoft.Data.SqlClient security default without weakening
+            // certificate validation or silently downgrading unsupported Strict mode.
+            var settings = new System.Data.Common.DbConnectionStringBuilder { ConnectionString = connectionString };
+            if (!settings.ContainsKey("Encrypt")) settings["Encrypt"] = true;
+            else
+            {
+                string encrypt = Convert.ToString(settings["Encrypt"], System.Globalization.CultureInfo.InvariantCulture);
+                if (string.Equals(encrypt, "Strict", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("Encrypt=Strict is not supported by Framework SqlClient; it cannot be downgraded automatically.", nameof(connectionString));
+                if (string.Equals(encrypt, "Mandatory", StringComparison.OrdinalIgnoreCase)) settings["Encrypt"] = true;
+                if (string.Equals(encrypt, "Optional", StringComparison.OrdinalIgnoreCase)) settings["Encrypt"] = false;
+                // Strict and provider-specific keywords are rejected by the builder,
+                // never removed or converted to weaker security settings.
+            }
+            var builder = new SqlConnectionStringBuilder(settings.ConnectionString);
+#else
             var builder = new SqlConnectionStringBuilder(connectionString);
+#endif
             if (string.IsNullOrWhiteSpace(builder.DataSource) || string.IsNullOrWhiteSpace(builder.InitialCatalog))
                 throw new ArgumentException("Data Source and Initial Catalog are required.", nameof(connectionString));
             this.connectionString = builder.ConnectionString;

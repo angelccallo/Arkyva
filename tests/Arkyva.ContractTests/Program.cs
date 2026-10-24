@@ -10,6 +10,17 @@ internal static class Program
     {
         try
         {
+#if ARKYVA_NETSTANDARD
+            const string expectedTarget = ".NETStandard,Version=v2.0";
+#else
+            const string expectedTarget = ".NETFramework,Version=v4.7.2";
+#endif
+            foreach (var assembly in new[] { typeof(IArkyvaService).Assembly,
+                typeof(Arkyva.Storage.FileSystem.FileSystemStorageProvider).Assembly,
+                typeof(Arkyva.Metadata.SqlServer.Repositories.SqlServerMetadataRepository).Assembly })
+                Check(assembly.GetCustomAttributes(typeof(System.Runtime.Versioning.TargetFrameworkAttribute), false)
+                    .Cast<System.Runtime.Versioning.TargetFrameworkAttribute>().Single().FrameworkName == expectedTarget,
+                    "Selected target: " + assembly.GetName().Name + " " + expectedTarget);
             foreach (var contract in new[] { typeof(IArkyvaService), typeof(IStorageProvider), typeof(IMetadataRepository) })
                 Check(contract.IsInterface && contract.GetMethods().All(m => typeof(Task).IsAssignableFrom(m.ReturnType)), contract.Name + " asincrono");
             Check(!typeof(Arkyva.Core.Models.FileInfo).GetProperties().Any(p => p.Name == "StorageKey" || p.Name == "ProviderId"), "API sin detalles fisicos");

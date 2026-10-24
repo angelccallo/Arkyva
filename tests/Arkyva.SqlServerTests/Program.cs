@@ -12,7 +12,11 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Arkyva.Core.Models;
 using Arkyva.Metadata.SqlServer.Repositories;
+#if ARKYVA_NETSTANDARD
 using Microsoft.Data.SqlClient;
+#else
+using System.Data.SqlClient;
+#endif
 
 internal static class Program
 {
@@ -52,6 +56,28 @@ internal static class Program
 
     private static async Task Validation()
     {
+        const string securityBase = "Data Source=invalid;Initial Catalog=security_validation;Integrated Security=True;";
+        Func<string, SqlConnectionStringBuilder> settings = connection =>
+        {
+            var instance = new SqlServerMetadataRepository(connection);
+            string stored = (string)typeof(SqlServerMetadataRepository).GetField("connectionString", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(instance);
+            return new SqlConnectionStringBuilder(stored);
+        };
+        var defaults = settings(securityBase);
+        Func<SqlConnectionStringBuilder, bool> encrypted = s => s.Encrypt.ToString() == "True" || s.Encrypt.ToString() == "Mandatory";
+        Check(encrypted(defaults) && !defaults.TrustServerCertificate && defaults.IntegratedSecurity,
+            "Missing Encrypt preserves encrypted default and certificate validation");
+        Check(encrypted(settings(securityBase + "Encrypt=True;TrustServerCertificate=False")), "Explicit secure connection preserved");
+        Check(!encrypted(settings(securityBase + "Encrypt=False;TrustServerCertificate=False")), "Existing explicit opt-out preserved, never introduced by optimization");
+        Check(encrypted(settings(securityBase + "Encrypt=Mandatory")), "Mandatory spelling keeps encryption");
+        Check(!encrypted(settings(securityBase + "Encrypt=Optional")), "Optional spelling keeps explicit choice");
+#if !ARKYVA_NETSTANDARD
+        await Throws<ArgumentException>(() => Task.FromResult(settings(securityBase + "Encrypt=Strict")));
+        await Throws<ArgumentException>(() => Task.FromResult(settings(securityBase + "HostNameInCertificate=sql.example")));
+        Check(!typeof(SqlServerMetadataRepository).Assembly.GetReferencedAssemblies().Any(a => a.Name == "Microsoft.Data.SqlClient"), "Native provider uses Framework System.Data without driver package");
+#else
+        Check(settings(securityBase + "Encrypt=Strict").Encrypt.ToString() == "Strict", "Standard target retains Strict support");
+#endif
         foreach (string connection in new[] { null, "", " ", "InvalidKey=x", "Data Source=invalid", "Initial Catalog=test" })
             await Throws<ArgumentException>(() => Task.FromResult(new SqlServerMetadataRepository(connection)));
         var repository = new SqlServerMetadataRepository("Data Source=invalid;Initial Catalog=validation;Integrated Security=True;Connect Timeout=1");
@@ -122,6 +148,26 @@ internal static class Program
                             foreach (string batch in Regex.Split(File.ReadAllText(script), @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
                                 if (!string.IsNullOrWhiteSpace(batch)) await Execute(databaseConnection, batch);
                     checks++; Console.WriteLine("PASS: Versioned scripts and repeated installation");
+                    using (var transaction = databaseConnection.BeginTransaction())
+                    using (var typed = databaseConnection.CreateCommand())
+                    {
+                        typed.Transaction = transaction;
+                        typed.CommandText = "SELECT @Id, @Utc, @Offset, @Bytes;";
+                        Guid id = Guid.NewGuid();
+                        DateTimeOffset offset = new DateTimeOffset(Created);
+                        byte[] bytes = { 0, 1, 255 };
+                        typed.Parameters.Add("@Id", SqlDbType.UniqueIdentifier).Value = id;
+                        var time = typed.Parameters.Add("@Utc", SqlDbType.DateTime2); time.Scale = 7; time.Value = Created;
+                        var zone = typed.Parameters.Add("@Offset", SqlDbType.DateTimeOffset); zone.Scale = 7; zone.Value = offset;
+                        typed.Parameters.Add("@Bytes", SqlDbType.VarBinary, 3).Value = bytes;
+                        using (var reader = await typed.ExecuteReaderAsync())
+                        {
+                            Check(await reader.ReadAsync() && reader.GetGuid(0) == id && reader.GetDateTime(1) == Created &&
+                                reader.GetFieldValue<DateTimeOffset>(2) == offset && ((byte[])reader.GetValue(3)).SequenceEqual(bytes),
+                                "Typed Guid/DateTime2/DateTimeOffset/varbinary roundtrip in transaction");
+                        }
+                        transaction.Rollback();
+                    }
                     await RepositoryChecks(builder.ConnectionString, databaseConnection);
                     await EndToEndChecks(builder.ConnectionString);
                     await InstalledPackageChecks(builder.ConnectionString);

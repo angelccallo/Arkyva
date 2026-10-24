@@ -1,5 +1,33 @@
 # Preparación para publicación — 1.0.0-preview.1
 
+## Actualización Fase 11: 1.0.0-preview.3
+
+Los cuatro paquetes ofrecen lib/net472 y lib/netstandard2.0, con grupos de dependencias
+independientes. API pública comparada entre targets y con las DLL de preview.2: sin
+diferencias. ArkyvaHost, esquema, consultas y claves físicas se conservan.
+
+- Consumidor limpio net472: 45 → 4 paquetes, 41 → 0 externos, 11 → 0 redirects,
+  sin advertencias NuGet. El smoke consumer incluye un contrato WCF de compilación,
+  no un host IIS. Consumidor Standard independiente: 49 paquetes, mismo driver 6.1.7.
+- Suites con SQL Server LocalDB/FileSystem reales: 252 comprobaciones nativas y
+  250 contra los ensamblados Standard; consumidor NuGet nativo: 18 comprobaciones.
+  Se incluyen tipos SQL, transacciones, concurrencia y recuperación. No son 502
+  escenarios distintos: se ejecuta la misma cobertura sobre dos compilaciones.
+- 28 controles de publicación y auditoría NuGet sin vulnerabilidades conocidas.
+  Esta auditoría no valida los parches del Framework ni del SO.
+- Instancia exclusiva ArkyvaMultiTargetValidation y bases de pruebas eliminadas.
+- Framework 4.8.09032 con target/pack 4.7.2: no se validó runtime 4.7.2 aislado,
+  IIS/WCF real, SMB ni TLS remoto/certificados de producción.
+- Los primeros intentos detectaron problemas del runner/inspector y del pack de
+  scripts SQL al pasar a multitargeting; se corrigieron y se repitieron las validaciones.
+  Los scripts SQL se empaquetan una vez y no se modificaron.
+
+La elección Framework SqlClient es acotada al legado: cifrado predeterminado preservado,
+Strict rechazado sin degradación, conexiones modernas no equivalentes documentadas.
+Revisar [DEPENDENCIES.md](DEPENDENCIES.md) antes de aprobar la actualización. Nuevas
+dependencias o migraciones no se introducen. Preparada para revisión y validación remota,
+no publicada; no se realizaron commits/pushes/merges/tags/releases.
+
 ## Actualización Fase 10: 1.0.0-preview.2
 
 El informe siguiente conserva la evidencia histórica de preview.1. Para preview.2:

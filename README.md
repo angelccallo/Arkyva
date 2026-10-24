@@ -5,7 +5,7 @@ GUID, con metadatos técnicos en SQL Server y contenido en FileSystem local o UN
 El consumidor configura el repositorio una vez y utiliza una API asíncrona sin
 administrar rutas internas ni tablas. Licencia [MIT](LICENSE).
 
-Estado del código: **1.0.0-preview.2 en preparación**, incorpora ArkyvaHost.
+Estado del código: **1.0.0-preview.3 en preparación**, incorpora compilaciones nativas net472.
 La nueva versión aún no se publica desde este repositorio de trabajo.
 Véase [CHANGELOG.md](CHANGELOG.md) para los cambios de esta versión.
 Consultar [el informe de preparación](docs/RELEASE_READINESS.md) para resultados,
@@ -13,7 +13,7 @@ limitaciones y condiciones antes de publicar.
 
 ## Compatibilidad y requisitos
 
-- Cuatro bibliotecas netstandard2.0 y consumidor/pruebas net472.
+- Cuatro bibliotecas con targets net472 y netstandard2.0; consumidor/pruebas net472.
 - SQL Server con esquema arkyva instalado mediante scripts V001–V004, manualmente.
 - Ruta local absoluta o UNC en Windows y permisos de lectura, escritura, creación,
   renombrado y limpieza de temporales propios; SMB requiere permisos de share y NTFS.
@@ -25,18 +25,31 @@ cada configuración de IIS. Build no conecta SQL ni aplica migraciones.
 
 ## Distribución pública mediante NuGet.org
 
-La publicación de preview.2 se ejecutará manualmente desde GitHub Actions con OIDC,
+La publicación de preview.3 se ejecutará manualmente desde GitHub Actions con OIDC,
 según [NUGET_PUBLISHING.md](docs/NUGET_PUBLISHING.md).
 **Después de confirmar que la versión existe en NuGet.org**, instalar en una
 aplicación compatible:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.2 -Source https://api.nuget.org/v3/index.json
+Install-Package Arkyva -Version 1.0.0-preview.3 -Source https://api.nuget.org/v3/index.json
 ```
 
 En Visual Studio habilitar **Include prerelease**. El paquete principal resuelve
 Arkyva.Core, Arkyva.Storage.FileSystem y Arkyva.Metadata.SqlServer automáticamente.
 No se necesitan referencias a proyectos fuente ni construir proveedores concretos.
+
+NuGet selecciona lib/net472 para un consumidor .NET Framework 4.7.2. En ese target
+el proveedor SQL usa System.Data.SqlClient de System.Data del Framework, sin instalar
+el paquete NuGet homónimo ni Microsoft.Data.SqlClient. En la medición limpia se pasó
+de 45 paquetes a 4 y de 11 binding redirects a 0; no implica que una aplicación WCF
+existente pueda eliminar sus otros paquetes o redirects sin revisarlos.
+
+netstandard2.0 conserva Microsoft.Data.SqlClient 6.1.7 y Pkcs 8.0.2. El proveedor de
+Framework es heredado: mantener Windows/.NET parcheados y revisar sus limitaciones
+antes de actualizar, especialmente conexiones Strict o autenticación Entra avanzada.
+Arkyva conserva Encrypt=True si se omite; no desactiva validación de certificados.
+Véase [medición, seguridad y diferencias SQL](docs/DEPENDENCIES.md).
+No se añade integración específica con ASP.NET Core ni nuevos proveedores.
 
 El feed local se usa solo para pruebas previas a la publicación; su procedimiento
 está en [PACKAGING.md](docs/PACKAGING.md). No es la distribución pública oficial.

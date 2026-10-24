@@ -1,11 +1,11 @@
 > Este documento describe validación local previa. La distribución oficial será
-> NuGet.org mediante el [procedimiento OIDC](NUGET_PUBLISHING.md); preview.2 aún no se publicó.
+> NuGet.org mediante el [procedimiento OIDC](NUGET_PUBLISHING.md); preview.3 aún no se publicó.
 
 # Empaquetado y validación local
 
 ## Paquetes y procedencia de metadatos
 
-Todos usan 1.0.0-preview.2 y netstandard2.0. src/Directory.Build.props centraliza
+Todos usan 1.0.0-preview.3 con net472 y netstandard2.0. src/Directory.Build.props centraliza
 versión, autor, licencia y repositorio solo para bibliotecas. Authors es Angel Ccallo
 (obtenido de git log), copyright angelccallo de LICENSE y RepositoryUrl procede de
 origin: https://github.com/angelccallo/Arkyva. No se modificó la licencia MIT.
@@ -16,6 +16,13 @@ origin: https://github.com/angelccallo/Arkyva. No se modificó la licencia MIT.
 | Arkyva.Core | Contratos y servicios independientes de proveedores |
 | Arkyva.Storage.FileSystem | Arkyva.Core |
 | Arkyva.Metadata.SqlServer | Arkyva.Core, Microsoft.Data.SqlClient 6.1.7 y System.Security.Cryptography.Pkcs 8.0.2 |
+
+La dependencia SQL/Pkcs de esa fila solo pertenece a netstandard2.0. net472 depende
+únicamente de Core y usa System.Data incluido en Framework. Cada nupkg incluye
+lib/net472 y lib/netstandard2.0 con DLL/XML; Metadata incluye una sola copia de los
+cuatro scripts. Test-Packages inspecciona cada grupo y verifica los activos elegidos
+por NuGet y el límite de cuatro paquetes totales en el consumidor nativo.
+Ver [DEPENDENCIES.md](DEPENDENCIES.md) para seguridad, medición y compatibilidad.
 
 Pkcs ya era transitiva del driver: se añadió una restricción directa a la versión
 corregida por los avisos de octubre de 2026, no una función criptográfica nueva.
@@ -83,9 +90,9 @@ Crear un NuGet.Config del consumidor con la ruta absoluta a artifacts/packages:
 Después instalar únicamente Arkyva:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.2
+Install-Package Arkyva -Version 1.0.0-preview.3
 # O desde una consola, en un proyecto net472:
-dotnet add package Arkyva --version 1.0.0-preview.2
+dotnet add package Arkyva --version 1.0.0-preview.3
 ```
 
 Conservar NuGet.org para resolver dependencias externas y un cliente NuGet compatible

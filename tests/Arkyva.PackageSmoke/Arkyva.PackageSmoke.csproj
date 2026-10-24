@@ -4,5 +4,5 @@
     <IsPackable>false</IsPackable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="Arkyva" Version="1.0.0-preview.2" /></ItemGroup>
+  <ItemGroup><PackageReference Include="Arkyva" Version="1.0.0-preview.3" /><Reference Include="System.ServiceModel" /></ItemGroup>
 </Project>
