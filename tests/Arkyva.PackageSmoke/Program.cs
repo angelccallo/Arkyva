@@ -25,6 +25,15 @@ internal static class Program
             IArkyvaService service = ArkyvaBuilder.Create().UseSqlServer(configured ??
                 "Data Source=invalid.example;Initial Catalog=package_validation;Integrated Security=True;Connect Timeout=1").UseFileSystem(root).Build();
             Check(service != null && !(service is IDisposable), "Build from NuGet on net472");
+            await Throws<InvalidOperationException>(() => Task.FromResult(ArkyvaHost.Current));
+            ArkyvaHost.Configure(options =>
+            {
+                options.UseSqlServer(configured ?? "Data Source=invalid.example;Initial Catalog=package_validation;Integrated Security=True;Connect Timeout=1");
+                options.UseFileSystem(root);
+            });
+            Check(!ReferenceEquals(service, ArkyvaHost.Current) && ReferenceEquals(ArkyvaHost.Current, ArkyvaHost.Current), "Host from NuGet is shared and independent of builder");
+            service = ArkyvaHost.Current;
+            await Throws<InvalidOperationException>(() => { ArkyvaHost.Configure(o => { }); return Task.CompletedTask; });
             await Throws<ArgumentException>(() => service.GetInfoAsync(Guid.Empty));
             await Throws<ArgumentException>(() => service.DownloadAsync(Guid.Empty));
             await Throws<ArgumentException>(() => service.ExistsAsync(Guid.Empty));

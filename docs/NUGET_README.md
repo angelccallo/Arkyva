@@ -7,21 +7,28 @@ content on a local or Windows UNC path. MIT licensed, by Angel Ccallo.
 After the authorized public release is confirmed on NuGet.org, install only the integration package. This version has NOT been published during preparation:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.1 -Source https://api.nuget.org/v3/index.json
+Install-Package Arkyva -Version 1.0.0-preview.2 -Source https://api.nuget.org/v3/index.json
 ```
 
 ```csharp
 using Arkyva;
 
-var arkyva = ArkyvaBuilder.Create()
-    .UseSqlServer(connectionString)
-    .UseFileSystem(storagePath)
-    .Build();
+ArkyvaHost.Configure(options =>
+{
+    options.UseSqlServer(connectionString);
+    options.UseFileSystem(storagePath);
+});
 
-Guid id = await arkyva.UploadAsync(stream, "document.pdf");
-using (var file = await arkyva.DownloadAsync(id))
+Guid id = await ArkyvaHost.Current.UploadAsync(stream, "document.pdf");
+using (var file = await ArkyvaHost.Current.DownloadAsync(id))
     await file.Content.CopyToAsync(destination);
 ```
+
+ArkyvaHost is optional and available from 1.0.0-preview.2: configure synchronously
+once per AppDomain at startup; Current fails before successful configuration and
+duplicate configuration fails. Failed attempts can be retried. IIS recycling creates
+a new domain; no shutdown disposal is required. Use the unchanged ArkyvaBuilder
+for dependency injection, isolated tests or multiple independent instances.
 
 Install SQL scripts V001â€“V004 manually before using the service. Scripts ship in
 Arkyva.Metadata.SqlServer under contentFiles/any/any/Scripts. No automatic migrations,

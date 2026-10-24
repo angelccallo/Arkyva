@@ -107,6 +107,36 @@ internal static class Program
                 Check(typeof(ArkyvaBuilder).Assembly.GetReferencedAssemblies().All(a => a.Name != "System.Web" && !a.Name.StartsWith("Microsoft.AspNet")));
                 return Task.CompletedTask;
             });
+            foreach (string scenario in new[] {
+                "Current before configuration", "Valid callback builds once with separate Use calls",
+                "Chained options and reverse order", "Null callback does not configure",
+                "Duplicate configuration preserves original without invoking callback",
+                "Failed Build permits retry with corrected filesystem",
+                "Missing options permits retry without directory side effect",
+                "Callback failure preserves original exception and permits retry",
+                "Concurrent Configure has one callback and one published instance",
+                "Concurrent Current always returns same service",
+                "Recursive Configure is rejected and retry remains possible",
+                "Captured options cannot mutate configured host", "Failed callback closes captured options",
+                "Traditional builder remains independent before and after host" })
+            {
+                await Test("Host: " + scenario, () =>
+                {
+                    var setup = new AppDomainSetup {
+                        ApplicationBase = AppDomain.CurrentDomain.BaseDirectory,
+                        ConfigurationFile = AppDomain.CurrentDomain.SetupInformation.ConfigurationFile
+                    };
+                    var domain = AppDomain.CreateDomain("ArkyvaHost-test-" + Guid.NewGuid().ToString("N"), null, setup);
+                    try
+                    {
+                        var runner = (HostScenarioRunner)domain.CreateInstanceAndUnwrap(
+                            typeof(HostScenarioRunner).Assembly.FullName, typeof(HostScenarioRunner).FullName);
+                        runner.Run(scenario, Path.Combine(root, Guid.NewGuid().ToString("N")));
+                    }
+                    finally { AppDomain.Unload(domain); }
+                    return Task.CompletedTask;
+                });
+            }
         }
         finally
         {

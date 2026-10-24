@@ -1,4 +1,4 @@
-param([string]$Version = '1.0.0-preview.1', [switch]$AllowStable)
+param([string]$Version = '1.0.0-preview.2', [switch]$AllowStable)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'NuGetPublishing.psm1') -Force
 Assert-ReleaseVersion -Version $Version -AllowStable:$AllowStable

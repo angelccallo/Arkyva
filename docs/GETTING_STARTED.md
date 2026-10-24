@@ -1,4 +1,4 @@
-# Inicio rápido e integración — Fase 6
+# Inicio rápido e integración
 
 ## Requisitos y referencias
 
@@ -7,7 +7,14 @@ Se requiere SDK .NET para compilar, Windows con Developer Pack .NET Framework
 ejecutarlos. Las cuatro bibliotecas siguen en netstandard2.0. Para las operaciones
 reales se necesitan SQL Server preparado y una ruta local o UNC accesible.
 
-En este repositorio, agregar UNA referencia al proyecto de composición:
+Desde NuGet, instalar únicamente Arkyva. ArkyvaHost se incorpora en 1.0.0-preview.2;
+instalar esa versión pública solo después de comprobar su publicación:
+
+```powershell
+Install-Package Arkyva -Version 1.0.0-preview.2
+```
+
+Para trabajar con el código de este repositorio, agregar UNA referencia al proyecto de composición:
 
 ```xml
 <ItemGroup>
@@ -18,7 +25,8 @@ En este repositorio, agregar UNA referencia al proyecto de composición:
 No es necesario referenciar ni construir tipos concretos de proveedores desde el
 código consumidor. El proyecto Arkyva referencia transitivamente Core, FileSystem y
 SqlServer. No añade paquetes externos: restaura los que ya usa el proveedor SQL,
-incluido Microsoft.Data.SqlClient 6.1.7 y sus dependencias. La Fase 7 genera cuatro paquetes preview locales; no se publicaron en NuGet.org.
+incluido Microsoft.Data.SqlClient 6.1.7 y sus dependencias. Los paquetes locales son
+solo validación previa; la publicación pública de preview.2 es manual y está pendiente.
 Véase [PACKAGING.md](PACKAGING.md) para instalación sin referencias a proyectos.
 
 ```powershell
@@ -43,6 +51,37 @@ la instalación se realiza con una identidad que tenga permisos DDL apropiados.
 No se requieren permisos de crear bases durante el uso normal.
 
 ## Configuración fluida
+
+Para una aplicación con una sola configuración se recomienda ArkyvaHost:
+
+```csharp
+using System;
+using Arkyva;
+
+ArkyvaHost.Configure(options =>
+{
+    options.UseSqlServer(connectionString);
+    options.UseFileSystem(baseDirectory);
+});
+
+// En cualquier método asíncrono después de configurar:
+Guid id = await ArkyvaHost.Current.UploadAsync(stream, "archivo.pdf");
+```
+
+Configure usa un ArkyvaHostOptions de alcance limitado al callback: conserva
+internamente cada builder inmutable devuelto por Use y delega Build al builder
+existente. No duplica validaciones ni operaciones. Use devuelve las mismas options
+para encadenar opcionalmente. El callback debe terminar síncronamente: no usar
+async void, recursión, ni esperar trabajo que llame otra vez a Configure.
+
+Una sola configuración exitosa por AppDomain; llamadas concurrentes se serializan
+y solo una ejecuta el callback si tiene éxito. La segunda lanza InvalidOperationException
+sin construir proveedores. Current no espera el arranque: lanza InvalidOperationException
+si Configure no terminó con éxito. Tras callback/Build fallido se conserva la excepción
+original y se permite reintentar; no se deshacen carpetas que Build haya creado.
+Las options capturadas quedan cerradas al finalizar el intento. No hay Reset público.
+
+Para DI, pruebas o múltiples instancias independientes, conservar la API tradicional:
 
 ```csharp
 using Arkyva;
@@ -132,6 +171,54 @@ providerName documenta el driver actual. El builder recibe una cadena y utiliza
 el proveedor SQL ya existente; no usa DbProviderFactories ni necesita registrar
 un factory. Tampoco depende de System.Web, IIS ni System.Configuration.
 
+## ArkyvaHost en ASP.NET y WCF
+
+En Global.asax.cs, integrar en el Application_Start existente. La aplicación lee
+Web.config; Arkyva no depende de System.Configuration, System.Web ni WCF:
+
+```csharp
+using System;
+using System.Configuration;
+using Arkyva;
+
+protected void Application_Start(object sender, EventArgs e)
+{
+    string connectionString =
+        ConfigurationManager.ConnectionStrings["Arkyva"]?.ConnectionString;
+    string storagePath = ConfigurationManager.AppSettings["Arkyva:StoragePath"];
+
+    ArkyvaHost.Configure(options =>
+    {
+        options.UseSqlServer(connectionString);
+        options.UseFileSystem(storagePath);
+    });
+}
+```
+
+En la implementación de una operación WCF existente, después de validar y autorizar
+la solicitud y abrir su stream:
+
+```csharp
+Guid fileId = await ArkyvaHost.Current.UploadAsync(stream, nombreArchivo);
+// Incorporar fileId a la respuesta del contrato existente.
+```
+
+No requiere acceder a Global ni HttpContext.Current. No llamar Configure por solicitud
+ni desde cada constructor WCF. Verificar el arranque del hosting WCF concreto; si ya
+utiliza ServiceHostFactory u otro punto de composición, configurar allí una única vez.
+No cambiar el modo de compatibilidad ASP.NET ni contratos WCF solo por esta fachada.
+En consola/servicio Windows, Configure se llama desde Main/arranque del servicio.
+
+Current mantiene una instancia compartida por AppDomain, no entre procesos. Durante
+un reciclado IIS puede haber dominios/procesos superpuestos, cada uno con su servicio;
+la protección entre procesos sigue en FileSystem/SQL. El nuevo dominio puede configurar
+otra vez. No requiere IDisposable ni Application_End; cada FileContent sí debe liberarse.
+Un reciclado puede interrumpir cargas; no hay recuperación automática al iniciar.
+
+Las pruebas que necesiten distintas configuraciones deben preferir inyectar un servicio
+construido por ArkyvaBuilder o fakes de IArkyvaService. Para probar el estado estático
+de ArkyvaHost usar procesos/AppDomains aislados, no reflexión ni Reset en producción.
+
 ## Ciclo de vida e inyección de dependencias
 
 Construir una instancia por configuración al iniciar la aplicación o desde su
@@ -144,6 +231,8 @@ Builder y servicio no implementan IDisposable porque no poseen handles abiertos
 que requieran liberación al terminar su vida. Las descargas sí requieren using.
 Build puede llamarse varias veces y crea nuevos objetos; no es necesario hacerlo
 por solicitud. No existe un singleton global obligatorio.
+ArkyvaHost es la alternativa global opcional; ArkyvaBuilder sigue creando instancias
+independientes aunque el host ya esté configurado.
 
 Registrar el IArkyvaService ya construido mediante el mecanismo de instancia del
 contenedor actual, con ciclo de vida de aplicación si corresponde, o pasarlo

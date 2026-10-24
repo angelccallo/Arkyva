@@ -5,7 +5,9 @@ GUID, con metadatos técnicos en SQL Server y contenido en FileSystem local o UN
 El consumidor configura el repositorio una vez y utiliza una API asíncrona sin
 administrar rutas internas ni tablas. Licencia [MIT](LICENSE).
 
-Estado: **1.0.0-preview.1 preparada para Trusted Publishing; no publicada en NuGet.org**.
+Estado del código: **1.0.0-preview.2 en preparación**, incorpora ArkyvaHost.
+La nueva versión aún no se publica desde este repositorio de trabajo.
+Véase [CHANGELOG.md](CHANGELOG.md) para los cambios de esta versión.
 Consultar [el informe de preparación](docs/RELEASE_READINESS.md) para resultados,
 limitaciones y condiciones antes de publicar.
 
@@ -23,13 +25,13 @@ cada configuración de IIS. Build no conecta SQL ni aplica migraciones.
 
 ## Distribución pública mediante NuGet.org
 
-La publicación oficial se ejecutará manualmente desde GitHub Actions con OIDC,
-según [NUGET_PUBLISHING.md](docs/NUGET_PUBLISHING.md). Todavía no se ejecutó.
+La publicación de preview.2 se ejecutará manualmente desde GitHub Actions con OIDC,
+según [NUGET_PUBLISHING.md](docs/NUGET_PUBLISHING.md).
 **Después de confirmar que la versión existe en NuGet.org**, instalar en una
 aplicación compatible:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.1 -Source https://api.nuget.org/v3/index.json
+Install-Package Arkyva -Version 1.0.0-preview.2 -Source https://api.nuget.org/v3/index.json
 ```
 
 En Visual Studio habilitar **Include prerelease**. El paquete principal resuelve
@@ -41,18 +43,21 @@ está en [PACKAGING.md](docs/PACKAGING.md). No es la distribución pública ofic
 
 ## Inicio rápido
 
-Dentro de un método asíncrono, con configuración obtenida de la aplicación:
+Para una aplicación con una sola configuración, inicializar una vez al arrancar:
 
 ```csharp
 using System;
 using System.IO;
 using Arkyva;
 
-var arkyva = ArkyvaBuilder.Create()
-    .UseSqlServer(connectionString)
-    .UseFileSystem(storagePath)
-    .Build();
+ArkyvaHost.Configure(options =>
+{
+    options.UseSqlServer(connectionString);
+    options.UseFileSystem(storagePath);
+});
 
+// Desde cualquier componente, dentro de su método asíncrono:
+var arkyva = ArkyvaHost.Current;
 Guid id;
 using (var input = File.OpenRead(inputPath))
     id = await arkyva.UploadAsync(input, "documento.pdf");
@@ -70,6 +75,30 @@ await arkyva.DeleteAsync(id); // Eliminación lógica; conserva contenido físic
 El llamador posee la entrada y debe liberar FileContent de las descargas. La instancia
 construida puede reutilizarse; no mantiene conexiones ni streams abiertos globalmente.
 
+Configure construye mediante ArkyvaBuilder; Current devuelve siempre esa misma
+instancia. Current antes de configurar y una segunda configuración exitosa lanzan
+InvalidOperationException. Un intento fallido no publica servicio y permite reintentar;
+Build puede haber creado carpetas. El callback debe ser síncrono, sin async void,
+sin configurar recursivamente ni esperar otra llamada Configure. No conservar options:
+solo es válido durante ese callback. No hay Reset ni reemplazo público.
+
+Para inyección de dependencias, pruebas aisladas o múltiples instancias, la API
+anterior continúa disponible sin cambios y no configura ArkyvaHost:
+
+```csharp
+var arkyva = ArkyvaBuilder.Create()
+    .UseSqlServer(connectionString)
+    .UseFileSystem(storagePath)
+    .Build();
+```
+
+En ASP.NET/WCF alojado en IIS, llamar Configure una vez desde Application_Start
+del arranque existente y usar ArkyvaHost.Current en los endpoints, sin HttpContext
+ni acceso a Global. Cada AppDomain conserva su instancia; el reciclado permite
+configurar nuevamente en el nuevo dominio y no ejecuta recuperación automática.
+No requiere Dispose/Application_End; liberar siempre cada descarga. Véase el
+[ejemplo WCF y las pruebas aisladas](docs/GETTING_STARTED.md#arkyvahost-en-aspnet-y-wcf).
+
 ## Características del MVP
 
 - Upload, Download, GetInfo, List con filtros/paginación, Exists y Delete lógico.
@@ -80,7 +109,7 @@ construida puede reutilizarse; no mantiene conexiones ni streams abiertos global
 - Concurrencia optimista mediante Revision y recibo SHA-256 tras publicación exitosa.
 - Recuperación manual verificable y DryRun predeterminado; diagnóstico sin borrar
   definitivos ni temporales cuyo abandono no se pueda demostrar.
-- Builder inmutable, composición manual opcional y ejemplo .NET Framework 4.7.2.
+- Host opcional de configuración única, builder inmutable y ejemplo .NET Framework 4.7.2.
 
 Los DTO públicos no contienen StorageKey, rutas ni conexiones. SQL no almacena binarios
 ni se relaciona con tablas de negocio. El hash se utiliza para recuperación de recibos;

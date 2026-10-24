@@ -1,4 +1,4 @@
-param([string]$Version = '1.0.0-preview.1', [switch]$InspectOnly, [string]$ExpectedRepositoryCommit)
+param([string]$Version = '1.0.0-preview.2', [switch]$InspectOnly, [string]$ExpectedRepositoryCommit)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $feed = Join-Path $repo 'artifacts/packages'
