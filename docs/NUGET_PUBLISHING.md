@@ -1,5 +1,25 @@
 # Publicación oficial de Arkyva en NuGet.org
 
+## Próxima versión: 1.0.0-preview.3 (Fase 11)
+
+Cuatro paquetes multitarget net472/netstandard2.0; API y ArkyvaHost conservados.
+Antes de autorizar, revisar DEPENDENCIES.md: net472 usa Framework SqlClient heredado
+con cifrado predeterminado preservado, sin dependencias SQL NuGet. El target Standard
+mantiene el driver moderno. No hay cambios SQL ni migraciones nuevas.
+
+El workflow existente conserva OIDC y publicación exclusivamente manual desde main.
+La versión predeterminada es ahora preview.3. Tras PR y validación del futuro commit,
+ejecutar version=1.0.0-preview.3, publish=false, allow_existing_ids=true solo después
+de confirmar propiedad y allow_stable=false. Para publicar, repetir con publish=true
+únicamente tras autorización expresa y revisión del candidato. No se inició login
+ni publicación en esta fase; los apartados de previews anteriores son históricos.
+
+Validate-Packages.ps1 compila ambos targets, ejecuta las suites para cada compilación,
+comprueba API, audita, empaqueta y restaura consumidores net472/Standard independientes.
+El inspector exige los dos grupos, cuatro DLL por target en el conjunto y cero paquetes
+externos en el consumidor net472. Los informes de dependencias/suites se suben como
+artefactos. SQL externo sigue siendo opt-in protegido en el CI; no hay nuevos secretos.
+
 ## Próxima versión: 1.0.0-preview.2 (Fase 10)
 
 La consulta pública de esta fase confirma 1.0.0-preview.1 visible para los cuatro

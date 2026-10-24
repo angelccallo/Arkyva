@@ -7,7 +7,7 @@ on:
         description: 'Canonical SemVer to validate and optionally publish'
         required: true
         type: string
-        default: '1.0.0-preview.2'
+        default: '1.0.0-preview.3'
       publish:
         description: 'Explicit authorization to publish after environment approval (false = validate only)'
         required: true
@@ -82,6 +82,8 @@ jobs:
           path: |
             artifacts/audit.json
             artifacts/test-results/summary.json
+            artifacts/test-results/standard-summary.json
+            artifacts/dependency-reports/*.json
             artifacts/nuget-availability.json
           if-no-files-found: warn
           retention-days: 14

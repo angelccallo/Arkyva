@@ -1,5 +1,20 @@
 # Cambios
 
+## 1.0.0-preview.3 — en preparación, no publicada por esta tarea
+
+- Los cuatro paquetes incluyen net472 y netstandard2.0 con la misma API pública.
+- net472 utiliza System.Data.SqlClient incluido en System.Data del Framework,
+  sin paquete SQL adicional; netstandard2.0 conserva Microsoft.Data.SqlClient 6.1.7
+  y Pkcs 8.0.2. En un consumidor limpio net472: 45 → 4 paquetes, 11 → 0 redirects.
+- Encrypt omitido conserva el default cifrado anterior en net472; Mandatory/Optional
+  conservan su significado explícito. Strict y keywords no soportadas se rechazan
+  sin degradación. Revisar DEPENDENCIES.md antes de actualizar: el proveedor nativo
+  es heredado y depende de parches Windows/Framework; no equivale al driver moderno.
+- No cambian ArkyvaHost, builder, contratos, consultas SQL, esquema ni claves físicas.
+- Validación de ambos targets, consumidores NuGet independientes, contrato WCF de
+  compilación y comparación de superficie pública frente a preview.2.
+- Publicación manual mediante el workflow existente, sin login/push automático.
+
 ## 1.0.0-preview.2 — en preparación, no publicada por esta tarea
 
 - ArkyvaHost.Configure(Action<ArkyvaHostOptions>) y Current: acceso global opcional

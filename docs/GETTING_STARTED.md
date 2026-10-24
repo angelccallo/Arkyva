@@ -4,14 +4,15 @@
 
 Se requiere SDK .NET para compilar, Windows con Developer Pack .NET Framework
 4.7.2 para el ejemplo/pruebas net472 y un runtime .NET Framework compatible para
-ejecutarlos. Las cuatro bibliotecas siguen en netstandard2.0. Para las operaciones
+ejecutarlos. Las cuatro bibliotecas incluyen net472 y netstandard2.0. Para las operaciones
 reales se necesitan SQL Server preparado y una ruta local o UNC accesible.
 
-Desde NuGet, instalar únicamente Arkyva. ArkyvaHost se incorpora en 1.0.0-preview.2;
-instalar esa versión pública solo después de comprobar su publicación:
+Desde NuGet, instalar únicamente Arkyva. ArkyvaHost se conserva desde preview.2;
+el soporte nativo Framework se incorpora en preview.3. Instalar la nueva versión
+pública solo después de comprobar su publicación:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.2
+Install-Package Arkyva -Version 1.0.0-preview.3
 ```
 
 Para trabajar con el código de este repositorio, agregar UNA referencia al proyecto de composición:
@@ -24,9 +25,11 @@ Para trabajar con el código de este repositorio, agregar UNA referencia al proy
 
 No es necesario referenciar ni construir tipos concretos de proveedores desde el
 código consumidor. El proyecto Arkyva referencia transitivamente Core, FileSystem y
-SqlServer. No añade paquetes externos: restaura los que ya usa el proveedor SQL,
-incluido Microsoft.Data.SqlClient 6.1.7 y sus dependencias. Los paquetes locales son
-solo validación previa; la publicación pública de preview.2 es manual y está pendiente.
+SqlServer. En net472 no incorpora dependencias NuGet externas: usa System.Data del
+Framework. En netstandard2.0 conserva Microsoft.Data.SqlClient 6.1.7 y Pkcs 8.0.2,
+con sus transitivas. Los paquetes locales son solo validación previa; la publicación
+pública de preview.3 es manual y está pendiente. No instalar System.Data.SqlClient
+como paquete para obtener el proveedor incluido en Framework.
 Véase [PACKAGING.md](PACKAGING.md) para instalación sin referencias a proyectos.
 
 ```powershell
@@ -146,7 +149,7 @@ de la aplicación y mantenerlo fuera del repositorio.
   <connectionStrings>
     <add name="Arkyva"
          connectionString="Data Source=SQL-SERVER;Initial Catalog=Arkyva;Integrated Security=True;Encrypt=True"
-         providerName="Microsoft.Data.SqlClient" />
+         providerName="System.Data.SqlClient" />
   </connectionStrings>
   <appSettings>
     <add key="Arkyva:StoragePath" value="\\FILE-SERVER\Documentos" />
@@ -167,9 +170,20 @@ IArkyvaService service = ArkyvaBuilder.Create()
     .Build();
 ```
 
-providerName documenta el driver actual. El builder recibe una cadena y utiliza
-el proveedor SQL ya existente; no usa DbProviderFactories ni necesita registrar
+providerName documenta el driver del target net472. Para netstandard2.0 corresponde
+Microsoft.Data.SqlClient. El builder recibe una cadena y utiliza el proveedor del
+ensamblado seleccionado; no usa DbProviderFactories ni necesita registrar
 un factory. Tampoco depende de System.Web, IIS ni System.Configuration.
+
+Especificar Encrypt=True;TrustServerCertificate=False en producción y preparar un
+certificado SQL confiable para el nombre utilizado. Si Encrypt se omite, Arkyva
+lo activa también en net472 para conservar el default seguro anterior. Las elecciones
+explícitas existentes no se cambian para reducir dependencias; no usar Encrypt=False
+ni TrustServerCertificate=True como solución general a errores de conexión.
+Strict y HostNameInCertificate no se degradan automáticamente: el target net472
+los rechaza. Si tu instalación los necesita, no actualizar sin una estrategia
+compatible revisada. Ver [DEPENDENCIES.md](DEPENDENCIES.md) para mantenimiento,
+características no equivalentes, excepciones y medición antes/después.
 
 ## ArkyvaHost en ASP.NET y WCF
 

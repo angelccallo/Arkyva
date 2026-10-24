@@ -1,11 +1,20 @@
 # Proveedor de metadatos SQL Server — Fase 3
 
 El repositorio implementa `IMetadataRepository` sin acceder a archivos ni coordinar
-FileSystem. Usa ADO.NET con una referencia directa a Microsoft.Data.SqlClient 6.1.7
+FileSystem. Desde preview.3 usa System.Data.SqlClient de System.Data del Framework
+para net472, sin paquete NuGet SQL. netstandard2.0 mantiene ADO.NET con Microsoft.Data.SqlClient 6.1.7
 (rama LTS), cuyos assets admiten netstandard2.0 y .NET Framework 4.6.2 o superior:
 [paquete oficial](https://www.nuget.org/packages/Microsoft.Data.SqlClient/6.1.7),
 [soporte y distribución](https://learn.microsoft.com/en-us/sql/connect/ado-net/download-microsoft-sqlclient-data-provider).
 No usa Entity Framework, un contenedor DI, procesos adicionales ni conexiones permanentes.
+
+Ambos targets comparten las consultas y la API pública, pero los proveedores no son
+equivalentes en características ni mantenimiento. El nativo conserva cifrado por defecto
+mediante la normalización de Arkyva; requiere parches del sistema/Framework y rechaza
+Strict y opciones modernas no soportadas. Las SqlException directas del repositorio
+pertenecen al namespace del driver de cada target; el servicio sigue envolviendo los
+errores con las mismas excepciones públicas de Arkyva. No exponer InnerException al
+consumidor final. Ver [comparación SQL, dependencias y seguridad](DEPENDENCIES.md).
 
 ## Preparación de la base
 
