@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>1.0.0-preview.1</Version>
+    <Version>1.0.0-preview.2</Version>
     <PackageId>$(MSBuildProjectName)</PackageId>
     <Authors>Angel Ccallo</Authors>
     <Copyright>Copyright (c) 2026 angelccallo</Copyright>

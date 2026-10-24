@@ -1,5 +1,28 @@
 # Publicación oficial de Arkyva en NuGet.org
 
+## Próxima versión: 1.0.0-preview.2 (Fase 10)
+
+La consulta pública de esta fase confirma 1.0.0-preview.1 visible para los cuatro
+IDs y ausencia de preview.2. El resto del documento conserva el procedimiento y
+la evidencia histórica de la primera publicación; no interpretar sus 404 anteriores
+como estado actual. No se inició publicación ni autenticación OIDC en esta fase.
+
+Los cuatro proyectos usan ahora 1.0.0-preview.2, con dependencias internas coherentes.
+ArkyvaHost se agrega únicamente al paquete principal, sin cambios de contratos previos,
+proveedores o SQL. Véase CHANGELOG.md y GETTING_STARTED.md.
+
+Tras guardar/subir cambios e integrarlos por PR a main con autorización, ejecutar el
+workflow existente sobre main con version=1.0.0-preview.2, publish=false,
+allow_existing_ids=true (confirmando antes propiedad de los cuatro IDs) y
+allow_stable=false. Revisar validación y candidato; solo con autorización explícita
+repetir con publish=true y aprobar el environment. El default de versión se actualizó;
+el default publish sigue false. No reutilizar preview.1 ni omitir conflictos.
+
+La prueba local usa Validate-Packages.ps1 -Version 1.0.0-preview.2. Si se conservan
+paquetes antiguos en artifacts/packages, archivarlos fuera de ese directorio antes
+de preparar el candidato: la validación de publicación exige exactamente cuatro.
+No mezclar distintas versiones al subir artefactos. GitHub parte de un checkout limpio.
+
 Estado de Fase 9: mecanismo preparado y validado localmente; **no se autenticó
 con NuGet/login ni se publicó ningún paquete**. El propietario informa que creó
 manualmente la política `Arkyva-GitHub-Publish`; su configuración privada no se

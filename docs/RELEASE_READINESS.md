@@ -1,5 +1,30 @@
 # Preparación para publicación — 1.0.0-preview.1
 
+## Actualización Fase 10: 1.0.0-preview.2
+
+El informe siguiente conserva la evidencia histórica de preview.1. Para preview.2:
+
+- Se añaden ArkyvaHost y ArkyvaHostOptions solo al paquete principal; el builder,
+  IArkyvaService, proveedores y scripts SQL permanecen sin cambios.
+- Release de once proyectos y consumidor independiente net472: cero errores/advertencias.
+- 240 comprobaciones en seis suites, incluidas 14 nuevas del host aisladas por AppDomain;
+  28 controles de publicación y 17 comprobaciones internas del consumidor NuGet.
+  Cero suites fallidas. SQL Server LocalDB y FileSystem locales reales, incluyendo
+  Upload/Download y eliminación lógica mediante Current desde el paquete instalado.
+- Cuatro nupkg preview.2 inspeccionados: DLL/XML netstandard2.0, MIT, dependencias,
+  README y scripts SQL. Restauración con una única PackageReference Arkyva y caché nueva.
+- Auditoría NuGet sin vulnerabilidades conocidas. El intento restringido encontró
+  TLS/NU1301; la repetición autorizada completó restore, auditoría y validaciones.
+- La base de pruebas y la instancia exclusiva ArkyvaHostValidation se eliminaron.
+- Los índices públicos muestran preview.1 y no preview.2; no hubo login ni push.
+- Runtime de ejecución disponible: Framework 4.8.09032, objetivo net472. No se probó
+  un runtime aislado 4.7.2, IIS/WCF desplegado ni SMB real. No hay nuevas dependencias.
+- Falta commit/revisión y validación remota del futuro commit de main antes de una
+  publicación manual autorizada; los artefactos locales no sustituyen ese candidato.
+
+Los límites funcionales de la preview y las responsabilidades del consumidor descritos
+abajo permanecen. No se crearon tags/releases ni se realizaron operaciones Git de escritura.
+
 Fecha: 2026-10-23. Rama de trabajo: dev. Esta fase prepara artefactos; no publica,
 crea tags/releases, modifica historial ni sube cambios al remoto.
 

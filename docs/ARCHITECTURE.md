@@ -276,3 +276,33 @@ No se modifica lógica de archivos, metadatos, recuperación, contratos ni esque
 La consulta pública no detectó versiones de los cuatro IDs, pero no reserva nombres.
 La configuración de cuentas/policies y la primera ejecución pública permanecen
 manuales y no se hicieron en esta tarea. Ver [NUGET_PUBLISHING.md](NUGET_PUBLISHING.md).
+
+## Fase 10: ArkyvaHost opcional (1.0.0-preview.2)
+
+ArkyvaHost vive en el ensamblado/namespace Arkyva y publica IArkyvaService mediante
+Current. No cambia Core, ArkyvaBuilder, proveedores ni esquema SQL. Para una única
+configuración por AppDomain ofrece Configure(Action<ArkyvaHostOptions>); el builder
+tradicional sigue siendo la alternativa para DI, pruebas y múltiples instancias.
+
+El callback usa options mutables de alcance limitado porque el builder existente
+es inmutable. Cada Use delega al builder y conserva el nuevo valor, sin replicar
+validaciones ni creación de proveedores. Options no expone Build y se cierra al
+terminar el intento para impedir mutaciones posteriores sobre referencias capturadas.
+
+Un lock privado serializa callback y Build. Solo después del éxito se publica con
+Volatile.Write; Current utiliza Volatile.Read y falla claramente si aún no hay servicio.
+El finally permite reintentar ante excepciones y rechaza recursión durante Configure.
+No hay Reset, sustitución pública, espera activa ni bloqueo de las operaciones del servicio.
+El callback es síncrono; no debe usar async void ni esperar otra llamada Configure.
+El lock coordina únicamente inicialización dentro del AppDomain; no sustituye las
+garantías entre procesos ya existentes en SQL y FileSystem.
+
+En Application_Start (o arranque equivalente) configurar una vez y consumir Current
+desde WCF sin Global/HttpContext. No se mantienen conexiones ni streams entre llamadas,
+ni se requiere Dispose/Application_End. Un nuevo AppDomain de IIS puede configurar de
+nuevo; no se ejecuta recuperación automática ni se promete terminar cargas interrumpidas.
+
+Las pruebas del host corren cada escenario en un AppDomain nuevo y lo descargan
+al terminar. Sin Reset ni alteración de campos privados; también verifican que los
+servicios del builder tradicional no dependan del host. El consumidor NuGet net472
+comprueba ambas APIs y usa Current en el flujo SQL/FileSystem de integración.
