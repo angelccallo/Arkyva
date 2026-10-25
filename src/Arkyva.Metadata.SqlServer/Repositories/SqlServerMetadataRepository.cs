@@ -15,7 +15,7 @@ namespace Arkyva.Metadata.SqlServer.Repositories
 {
     /// <summary>Persists technical metadata using short-lived pooled SQL Server connections.</summary>
     /// <remarks>Requires the versioned scripts to be applied separately. Never accesses physical files.</remarks>
-    public sealed class SqlServerMetadataRepository : IRecoveryMetadataRepository
+    public sealed partial class SqlServerMetadataRepository : ISynchronousRecoveryMetadataRepository
     {
         private readonly string connectionString;
         private const string Columns = "FileId, OriginalName, Extension, MimeType, SizeBytes, ProviderId, StorageKey, Status, CreatedUtc, DeletedUtc, Revision, CompletionSha256";
@@ -62,16 +62,10 @@ WHERE (@FileId IS NULL OR FileId = @FileId)
         /// <exception cref="SqlException">SQL Server rejects the insert, including duplicate keys.</exception>
         public async Task AddAsync(FileMetadata metadata)
         {
-            Validate(metadata);
-            if (metadata.Revision != 0 || metadata.CompletionSha256 != null)
-                throw new ArgumentException("New records cannot supply a revision or publication receipt.", nameof(metadata));
+            ValidateAdd(metadata);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateAddCommand(connection, metadata))
             {
-                command.CommandText = @"INSERT INTO arkyva.Files
-(FileId, OriginalName, Extension, MimeType, SizeBytes, ProviderId, StorageKey, Status, CreatedUtc, DeletedUtc)
-VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, @StorageKey, @Status, @CreatedUtc, @DeletedUtc);";
-                MetadataParameters(command, metadata);
                 await OpenAsync(connection).ConfigureAwait(false);
                 await command.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
@@ -82,10 +76,8 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
         {
             ValidateId(fileId);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateGetCommand(connection, fileId))
             {
-                command.CommandText = "SELECT " + Columns + " FROM arkyva.Files WHERE FileId = @FileId;";
-                Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, fileId);
                 await OpenAsync(connection).ConfigureAwait(false);
                 using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
                     return await reader.ReadAsync().ConfigureAwait(false) ? Read(reader) : null;
@@ -97,10 +89,8 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
         {
             ValidateId(fileId);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateExistsCommand(connection, fileId))
             {
-                command.CommandText = "SELECT CASE WHEN EXISTS (SELECT 1 FROM arkyva.Files WHERE FileId = @FileId AND Status = 'Active') THEN 1 ELSE 0 END;";
-                Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, fileId);
                 await OpenAsync(connection).ConfigureAwait(false);
                 return (int)await command.ExecuteScalarAsync().ConfigureAwait(false) == 1;
             }
@@ -115,19 +105,8 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
             {
                 await OpenAsync(connection).ConfigureAwait(false);
                 using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
-                using (var command = connection.CreateCommand())
+                using (var command = CreateListCommand(connection, transaction, query))
                 {
-                    command.Transaction = transaction;
-                    command.CommandText = "SELECT COUNT_BIG(*) FROM arkyva.Files " + Filter + "; SELECT " + Columns +
-                        " FROM arkyva.Files " + Filter + " ORDER BY CreatedUtc, FileId OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
-                    Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, query.FileId);
-                    Parameter(command, "@Status", SqlDbType.VarChar, query.Status.HasValue ? query.Status.Value.ToString() : null, 20);
-                    Parameter(command, "@OriginalName", SqlDbType.NVarChar, query.OriginalName, 255);
-                    Parameter(command, "@Extension", SqlDbType.NVarChar, query.Extension, 30);
-                    Parameter(command, "@CreatedFrom", SqlDbType.DateTime2, query.CreatedFromUtc);
-                    Parameter(command, "@CreatedBefore", SqlDbType.DateTime2, query.CreatedBeforeUtc);
-                    Parameter(command, "@Offset", SqlDbType.BigInt, ((long)query.PageNumber - 1) * query.PageSize);
-                    Parameter(command, "@PageSize", SqlDbType.Int, query.PageSize);
                     var result = new PagedResult<FileMetadata>();
                     var items = new List<FileMetadata>();
                     using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
@@ -151,22 +130,8 @@ VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, 
         {
             Validate(metadata);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateUpdateCommand(connection, metadata))
             {
-                command.CommandText = @"UPDATE arkyva.Files SET
-OriginalName = @OriginalName, Extension = @Extension, MimeType = @MimeType,
-Status = @Status, DeletedUtc = @DeletedUtc, UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
-WHERE FileId = @FileId AND Revision = @Revision AND (CompletionSha256 = @Receipt OR (CompletionSha256 IS NULL AND @Receipt IS NULL)) AND ProviderId = @ProviderId COLLATE Latin1_General_100_BIN2
-AND DATALENGTH(ProviderId) = DATALENGTH(@ProviderId)
-AND StorageKey = @StorageKey COLLATE Latin1_General_100_BIN2 AND DATALENGTH(StorageKey) = DATALENGTH(@StorageKey)
-AND SizeBytes = @SizeBytes AND CreatedUtc = @CreatedUtc
-AND ((Status = @Status AND (DeletedUtc = @DeletedUtc OR (DeletedUtc IS NULL AND @DeletedUtc IS NULL)))
- OR (Status = 'Pending' AND @Status IN ('Failed', 'Deleted'))
- OR (Status = 'Pending' AND @Status = 'Active' AND CompletionSha256 IS NOT NULL)
- OR (Status = 'Active' AND @Status IN ('Failed', 'Deleted'))
- OR (Status = 'Failed' AND @Status = 'Deleted'));
-SELECT @@ROWCOUNT;";
-                MetadataParameters(command, metadata);
                 await OpenAsync(connection).ConfigureAwait(false);
                 if ((int)await command.ExecuteScalarAsync().ConfigureAwait(false) != 1)
                     throw new InvalidOperationException("Record is missing, revision/immutable fields differ, or the requested state transition is not allowed.");
@@ -177,22 +142,10 @@ SELECT @@ROWCOUNT;";
         /// <summary>Records a post-publication receipt using compare-and-swap on revision and Pending state.</summary>
         public async Task<bool> TryRecordUploadAsync(FileMetadata expected, long sizeBytes, string sha256)
         {
-            Validate(expected);
-            ValidateHash(sha256);
-            if (sizeBytes < 0) throw new ArgumentOutOfRangeException(nameof(sizeBytes));
-            if (expected.Status != FileStatus.Pending || expected.CompletionSha256 != null)
-                throw new ArgumentException("A Pending snapshot without a receipt is required.", nameof(expected));
+            ValidateTryRecordUpload(expected, sizeBytes, sha256);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateTryRecordUploadCommand(connection, expected, sizeBytes, sha256))
             {
-                command.CommandText = @"UPDATE arkyva.Files SET SizeBytes = @Size, CompletionSha256 = @Hash,
-UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
-WHERE FileId = @Id AND Revision = @Version AND Status = 'Pending' AND CompletionSha256 IS NULL;
-SELECT @@ROWCOUNT;";
-                Parameter(command, "@Id", SqlDbType.UniqueIdentifier, expected.FileId);
-                Parameter(command, "@Version", SqlDbType.BigInt, expected.Revision);
-                Parameter(command, "@Size", SqlDbType.BigInt, sizeBytes);
-                Parameter(command, "@Hash", SqlDbType.Char, sha256, 64);
                 await OpenAsync(connection).ConfigureAwait(false);
                 if ((int)await command.ExecuteScalarAsync().ConfigureAwait(false) != 1) return false;
                 expected.Revision++; expected.SizeBytes = sizeBytes; expected.CompletionSha256 = sha256;
@@ -203,21 +156,10 @@ SELECT @@ROWCOUNT;";
         /// <summary>Activates an independently verified receipt from exactly the observed revision and Pending/Failed state.</summary>
         public async Task<bool> TryActivateRecoveredAsync(FileMetadata expected)
         {
-            Validate(expected);
-            ValidateHash(expected.CompletionSha256);
-            if (expected.Status != FileStatus.Pending && expected.Status != FileStatus.Failed)
-                throw new ArgumentException("Only Pending or Failed can be recovered.", nameof(expected));
+            ValidateTryActivateRecovered(expected);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateTryActivateRecoveredCommand(connection, expected))
             {
-                command.CommandText = @"UPDATE arkyva.Files SET Status = 'Active', UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
-WHERE FileId = @Id AND Revision = @Version AND Status = @ExpectedStatus AND CompletionSha256 = @Hash AND SizeBytes = @Size;
-SELECT @@ROWCOUNT;";
-                Parameter(command, "@Id", SqlDbType.UniqueIdentifier, expected.FileId);
-                Parameter(command, "@Version", SqlDbType.BigInt, expected.Revision);
-                Parameter(command, "@ExpectedStatus", SqlDbType.VarChar, expected.Status.ToString(), 20);
-                Parameter(command, "@Hash", SqlDbType.Char, expected.CompletionSha256, 64);
-                Parameter(command, "@Size", SqlDbType.BigInt, expected.SizeBytes);
                 await OpenAsync(connection).ConfigureAwait(false);
                 if ((int)await command.ExecuteScalarAsync().ConfigureAwait(false) != 1) return false;
                 expected.Revision++; expected.Status = FileStatus.Active;
@@ -230,14 +172,8 @@ SELECT @@ROWCOUNT;";
         {
             Text(providerId, nameof(providerId), 100, true); Text(storageKey, nameof(storageKey), 1000, true);
             using (var connection = new SqlConnection(connectionString))
-            using (var command = connection.CreateCommand())
+            using (var command = CreateGetByStorageKeyCommand(connection, providerId, storageKey))
             {
-                command.CommandText = "SELECT " + Columns + @" FROM arkyva.Files WHERE StorageIdentityHash = CONVERT(BINARY(32), HASHBYTES('SHA2_256',
-CONVERT(BINARY(4), DATALENGTH(@Provider)) + CONVERT(VARBINARY(200), @Provider) + CONVERT(VARBINARY(2000), @Key)))
-AND ProviderId = @Provider COLLATE Latin1_General_100_BIN2
-AND StorageKey = @Key COLLATE Latin1_General_100_BIN2 AND DATALENGTH(ProviderId) = DATALENGTH(@Provider) AND DATALENGTH(StorageKey) = DATALENGTH(@Key);";
-                Parameter(command, "@Provider", SqlDbType.NVarChar, providerId, 100);
-                Parameter(command, "@Key", SqlDbType.NVarChar, storageKey, 1000);
                 await OpenAsync(connection).ConfigureAwait(false);
                 using (var reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
                     return await reader.ReadAsync().ConfigureAwait(false) ? Read(reader) : null;
@@ -258,6 +194,165 @@ AND StorageKey = @Key COLLATE Latin1_General_100_BIN2 AND DATALENGTH(ProviderId)
                 command.CommandText = "SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET CONCAT_NULL_YIELDS_NULL ON; SET ARITHABORT ON; SET NUMERIC_ROUNDABORT OFF;";
                 await command.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
+        }
+
+        private static void ValidateAdd(FileMetadata metadata)
+        {
+            Validate(metadata);
+            if (metadata.Revision != 0 || metadata.CompletionSha256 != null)
+                throw new ArgumentException("New records cannot supply a revision or publication receipt.", nameof(metadata));
+        }
+
+        private static void ValidateTryRecordUpload(FileMetadata expected, long sizeBytes, string sha256)
+        {
+            Validate(expected);
+            ValidateHash(sha256);
+            if (sizeBytes < 0) throw new ArgumentOutOfRangeException(nameof(sizeBytes));
+            if (expected.Status != FileStatus.Pending || expected.CompletionSha256 != null)
+                throw new ArgumentException("A Pending snapshot without a receipt is required.", nameof(expected));
+        }
+
+        private static void ValidateTryActivateRecovered(FileMetadata expected)
+        {
+            Validate(expected);
+            ValidateHash(expected.CompletionSha256);
+            if (expected.Status != FileStatus.Pending && expected.Status != FileStatus.Failed)
+                throw new ArgumentException("Only Pending or Failed can be recovered.", nameof(expected));
+        }
+
+        private static SqlCommand CreateAddCommand(SqlConnection connection, FileMetadata metadata)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = @"INSERT INTO arkyva.Files
+(FileId, OriginalName, Extension, MimeType, SizeBytes, ProviderId, StorageKey, Status, CreatedUtc, DeletedUtc)
+VALUES (@FileId, @OriginalName, @Extension, @MimeType, @SizeBytes, @ProviderId, @StorageKey, @Status, @CreatedUtc, @DeletedUtc);";
+                MetadataParameters(command, metadata);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateGetCommand(SqlConnection connection, Guid fileId)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = "SELECT " + Columns + " FROM arkyva.Files WHERE FileId = @FileId;";
+                Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, fileId);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateExistsCommand(SqlConnection connection, Guid fileId)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = "SELECT CASE WHEN EXISTS (SELECT 1 FROM arkyva.Files WHERE FileId = @FileId AND Status = 'Active') THEN 1 ELSE 0 END;";
+                Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, fileId);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateListCommand(SqlConnection connection, SqlTransaction transaction, FileQuery query)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                    command.Transaction = transaction;
+                    command.CommandText = "SELECT COUNT_BIG(*) FROM arkyva.Files " + Filter + "; SELECT " + Columns +
+                        " FROM arkyva.Files " + Filter + " ORDER BY CreatedUtc, FileId OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
+                    Parameter(command, "@FileId", SqlDbType.UniqueIdentifier, query.FileId);
+                    Parameter(command, "@Status", SqlDbType.VarChar, query.Status.HasValue ? query.Status.Value.ToString() : null, 20);
+                    Parameter(command, "@OriginalName", SqlDbType.NVarChar, query.OriginalName, 255);
+                    Parameter(command, "@Extension", SqlDbType.NVarChar, query.Extension, 30);
+                    Parameter(command, "@CreatedFrom", SqlDbType.DateTime2, query.CreatedFromUtc);
+                    Parameter(command, "@CreatedBefore", SqlDbType.DateTime2, query.CreatedBeforeUtc);
+                    Parameter(command, "@Offset", SqlDbType.BigInt, ((long)query.PageNumber - 1) * query.PageSize);
+                    Parameter(command, "@PageSize", SqlDbType.Int, query.PageSize);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateUpdateCommand(SqlConnection connection, FileMetadata metadata)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = @"UPDATE arkyva.Files SET
+OriginalName = @OriginalName, Extension = @Extension, MimeType = @MimeType,
+Status = @Status, DeletedUtc = @DeletedUtc, UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
+WHERE FileId = @FileId AND Revision = @Revision AND (CompletionSha256 = @Receipt OR (CompletionSha256 IS NULL AND @Receipt IS NULL)) AND ProviderId = @ProviderId COLLATE Latin1_General_100_BIN2
+AND DATALENGTH(ProviderId) = DATALENGTH(@ProviderId)
+AND StorageKey = @StorageKey COLLATE Latin1_General_100_BIN2 AND DATALENGTH(StorageKey) = DATALENGTH(@StorageKey)
+AND SizeBytes = @SizeBytes AND CreatedUtc = @CreatedUtc
+AND ((Status = @Status AND (DeletedUtc = @DeletedUtc OR (DeletedUtc IS NULL AND @DeletedUtc IS NULL)))
+ OR (Status = 'Pending' AND @Status IN ('Failed', 'Deleted'))
+ OR (Status = 'Pending' AND @Status = 'Active' AND CompletionSha256 IS NOT NULL)
+ OR (Status = 'Active' AND @Status IN ('Failed', 'Deleted'))
+ OR (Status = 'Failed' AND @Status = 'Deleted'));
+SELECT @@ROWCOUNT;";
+                MetadataParameters(command, metadata);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateTryRecordUploadCommand(SqlConnection connection, FileMetadata expected, long sizeBytes, string sha256)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = @"UPDATE arkyva.Files SET SizeBytes = @Size, CompletionSha256 = @Hash,
+UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
+WHERE FileId = @Id AND Revision = @Version AND Status = 'Pending' AND CompletionSha256 IS NULL;
+SELECT @@ROWCOUNT;";
+                Parameter(command, "@Id", SqlDbType.UniqueIdentifier, expected.FileId);
+                Parameter(command, "@Version", SqlDbType.BigInt, expected.Revision);
+                Parameter(command, "@Size", SqlDbType.BigInt, sizeBytes);
+                Parameter(command, "@Hash", SqlDbType.Char, sha256, 64);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateTryActivateRecoveredCommand(SqlConnection connection, FileMetadata expected)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = @"UPDATE arkyva.Files SET Status = 'Active', UpdatedUtc = SYSUTCDATETIME(), Revision = Revision + 1
+WHERE FileId = @Id AND Revision = @Version AND Status = @ExpectedStatus AND CompletionSha256 = @Hash AND SizeBytes = @Size;
+SELECT @@ROWCOUNT;";
+                Parameter(command, "@Id", SqlDbType.UniqueIdentifier, expected.FileId);
+                Parameter(command, "@Version", SqlDbType.BigInt, expected.Revision);
+                Parameter(command, "@ExpectedStatus", SqlDbType.VarChar, expected.Status.ToString(), 20);
+                Parameter(command, "@Hash", SqlDbType.Char, expected.CompletionSha256, 64);
+                Parameter(command, "@Size", SqlDbType.BigInt, expected.SizeBytes);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
+        }
+
+        private static SqlCommand CreateGetByStorageKeyCommand(SqlConnection connection, string providerId, string storageKey)
+        {
+            var command = connection.CreateCommand();
+            try
+            {
+                command.CommandText = "SELECT " + Columns + @" FROM arkyva.Files WHERE StorageIdentityHash = CONVERT(BINARY(32), HASHBYTES('SHA2_256',
+CONVERT(BINARY(4), DATALENGTH(@Provider)) + CONVERT(VARBINARY(200), @Provider) + CONVERT(VARBINARY(2000), @Key)))
+AND ProviderId = @Provider COLLATE Latin1_General_100_BIN2
+AND StorageKey = @Key COLLATE Latin1_General_100_BIN2 AND DATALENGTH(ProviderId) = DATALENGTH(@Provider) AND DATALENGTH(StorageKey) = DATALENGTH(@Key);";
+                Parameter(command, "@Provider", SqlDbType.NVarChar, providerId, 100);
+                Parameter(command, "@Key", SqlDbType.NVarChar, storageKey, 1000);
+                return command;
+            }
+            catch { command.Dispose(); throw; }
         }
 
         private static FileMetadata Read(SqlDataReader reader)

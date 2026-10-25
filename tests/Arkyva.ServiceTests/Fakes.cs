@@ -177,7 +177,7 @@ internal sealed class TrackingStream : MemoryStream
     protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }
 }
 
-internal sealed class GeneratedStream : Stream
+internal class GeneratedStream : Stream
 {
     private long remaining;
     private readonly bool fail;

@@ -13,6 +13,8 @@ using System.ServiceModel;
 public interface IPackageWcfSmoke
 {
     [OperationContract]
+    Guid Upload(string originalName, string base64);
+    [OperationContract]
     Task<Guid> UploadAsync(string originalName, string base64);
 }
 
@@ -51,6 +53,13 @@ internal static class Program
             await Throws<ArgumentException>(() => service.DeleteAsync(Guid.Empty));
             await Throws<ArgumentException>(() => service.UploadAsync(null, "a.bin"));
             await Throws<ArgumentException>(() => service.ListAsync(new FileQuery { PageSize = 0 }));
+            ThrowsSync<ArgumentException>(() => ArkyvaHost.Current.Upload(null, "x.bin"));
+            ThrowsSync<ArgumentException>(() => ArkyvaHost.Current.Download(Guid.Empty));
+            ThrowsSync<ArgumentException>(() => ArkyvaHost.Current.GetInfo(Guid.Empty));
+            ThrowsSync<ArgumentException>(() => ArkyvaHost.Current.Exists(Guid.Empty));
+            ThrowsSync<ArgumentException>(() => ArkyvaHost.Current.Delete(Guid.Empty));
+            ThrowsSync<ArgumentException>(() => ArkyvaHost.Current.List(new FileQuery { PageSize = 0 }));
+            Check(service is ISynchronousArkyvaService, "Current exposes native sync capability without changing its existing interface");
             if (string.IsNullOrWhiteSpace(configured))
             {
                 Console.WriteLine("SKIP packaged SQL E2E: no isolated test connection supplied.");
@@ -72,6 +81,20 @@ internal static class Program
             Check(!await service.ExistsAsync(id) && await service.GetInfoAsync(id) == null, "Packaged logical Delete");
             await Throws<ArkyvaFileUnavailableException>(() => service.DownloadAsync(id));
             Check(Directory.GetFiles(root, "*.bin", SearchOption.AllDirectories).Length == 1, "Packaged Delete retains physical content");
+            Guid native;
+            using (var input = new MemoryStream(expected)) native = ArkyvaHost.Current.Upload(input, "native-package.bin");
+            using (var content = await ArkyvaHost.Current.DownloadAsync(native))
+            using (var copy = new MemoryStream()) { await content.Content.CopyToAsync(copy); Check(copy.ToArray().SequenceEqual(expected), "Packaged Upload interoperates with DownloadAsync"); }
+            Guid fromAsync;
+            using (var input = new MemoryStream(expected)) fromAsync = await service.UploadAsync(input, "async-package.bin");
+            using (var content = ArkyvaHost.Current.Download(fromAsync))
+            using (var copy = new MemoryStream()) { content.Content.CopyTo(copy); Check(copy.ToArray().SequenceEqual(expected), "Packaged UploadAsync interoperates with native Download"); }
+            Check(service.GetInfo(native).SizeBytes == expected.Length && service.Exists(native) && service.List(new FileQuery { FileId = native }).TotalCount == 1, "Packaged synchronous metadata, availability and pagination");
+            service.Delete(native); service.Delete(native);
+            Check(service.GetInfo(native) == null && !await service.ExistsAsync(native), "Packaged synchronous Delete is logical and idempotent");
+            ThrowsSync<ArkyvaFileUnavailableException>(() => service.Download(native));
+            await service.DeleteAsync(fromAsync);
+            Check(!service.Exists(fromAsync) && Directory.GetFiles(root, "*.bin", SearchOption.AllDirectories).Length == 3, "Packaged mixed deletion retains definitive content");
         }
         finally
         {
@@ -82,6 +105,8 @@ internal static class Program
         }
     }
     private static void Check(bool ok, string name) { if (!ok) throw new Exception(name); checks++; Console.WriteLine("PASS: " + name); }
+    private static void ThrowsSync<T>(Action action) where T : Exception
+    { try { action(); } catch (T) { checks++; return; } throw new Exception("Expected " + typeof(T).Name); }
     private static async Task Throws<T>(Func<Task> action) where T : Exception
     { try { await action(); } catch (T) { checks++; return; } throw new Exception("Expected " + typeof(T).Name); }
 }

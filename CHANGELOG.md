@@ -1,5 +1,19 @@
 # Cambios
 
+## 1.0.0-preview.4 — en preparación, no publicada por esta tarea
+
+- Upload, Download, GetInfo, List, Exists y Delete síncronos nativos, complementarios
+  a Async. E/S directa de FileSystem y ADO.NET; sin bloqueo de tareas ni Task.Run.
+- Capacidades ISynchronousArkyvaService, ISynchronousStorageProvider,
+  ISynchronousMetadataRepository e ISynchronousRecoveryMetadataRepository opcionales.
+  Interfaces Async existentes conservadas para no romper implementadores; extensiones
+  en namespace Arkyva permiten Current.Upload con el tipo anterior de Current.
+- Reglas/validaciones, snapshots, comandos SQL parametrizados y predicados CAS
+  compartidos. Recibo SHA-256 y recuperación interoperables entre ambas modalidades.
+- Pruebas nativas, fallos parciales, concurrencia mixta y consumidor NuGet independiente.
+- Se mantienen ambos targets, drivers/cifrado y dependencias de preview.3, host,
+  esquema SQL, licencia y estructura física. Publicación exclusivamente manual.
+
 ## 1.0.0-preview.3 — en preparación, no publicada por esta tarea
 
 - Los cuatro paquetes incluyen net472 y netstandard2.0 con la misma API pública.

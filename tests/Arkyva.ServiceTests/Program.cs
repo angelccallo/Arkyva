@@ -19,6 +19,7 @@ internal static class Program
     }
     private static async Task Run()
     {
+        tests += await SynchronousServiceChecks.Run();
         await Test("Upload registers Pending before storage and activates with exact bytes", async () =>
         {
             var f = new Fixture();

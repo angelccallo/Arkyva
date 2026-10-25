@@ -42,6 +42,7 @@ internal static class Program
         {
             string storage = Path.Combine(root, "files");
             var provider = new FileSystemStorageProvider(storage);
+            await SynchronousChecks(provider, storage);
             Check(Directory.Exists(storage), "Creates base directory");
             foreach (string path in new[] { null, "", " ", "relative", @"C:relative", @"\rooted", @"\\?\C:\files" })
                 await Throws<ArgumentException>(() => Task.FromResult(new FileSystemStorageProvider(path)));
@@ -210,6 +211,76 @@ internal static class Program
         });
     }
 
+    private static async Task SynchronousChecks(FileSystemStorageProvider provider, string storage)
+    {
+        using (var input = new MemoryStream(new byte[] { 1, 2, 3 }))
+        {
+            provider.Save("sync/content.bin", input);
+            Check(input.CanRead && provider.Exists("sync/content.bin"), "Sync Save preserves input ownership and creates subdirectories");
+        }
+        using (var content = (FileStream)provider.Read("sync/content.bin"))
+            Check(!content.IsAsync && content.Position == 0 && content.ReadByte() == 1, "Sync Read is a native FileStream");
+        foreach (string key in new[] { null, "", "../x", @"..\x", "/root", @"C:\root", "a//b", "CON", ".arkyva-x.tmp" })
+        {
+            ThrowsSync<ArgumentException>(() => provider.Save(key, new MemoryStream()));
+            ThrowsSync<ArgumentException>(() => provider.Read(key));
+            ThrowsSync<ArgumentException>(() => provider.Exists(key));
+            ThrowsSync<ArgumentException>(() => provider.Delete(key));
+        }
+        Pass("Sync methods reject traversal, absolute paths and reserved keys");
+        ThrowsSync<ArgumentNullException>(() => provider.Save("sync/null", null));
+        var closed = new MemoryStream(); closed.Dispose();
+        ThrowsSync<ArgumentException>(() => provider.Save("sync/closed", closed));
+        ThrowsSync<IOException>(() => provider.Save("sync/content.bin", new MemoryStream(new byte[] { 9 })));
+        using (var content = provider.Read("sync/content.bin")) Check(content.ReadByte() == 1, "Sync Save never overwrites");
+        using (var input = new GeneratedStream(160000, true)) ThrowsSync<IOException>(() => provider.Save("sync/failure.bin", input));
+        Check(!provider.Exists("sync/failure.bin") && NoTemps(storage), "Sync write error cleans temporary without publishing");
+        Directory.CreateDirectory(Path.Combine(storage, "sync", "directory.bin"));
+        ThrowsSync<IOException>(() => provider.Save("sync/directory.bin", new MemoryStream(new byte[] { 1 })));
+        Check(NoTemps(storage), "Sync publication conflict cleans temporary");
+        using (var gated = new NativeGatedStream())
+        {
+            Task write = Task.Run(() => provider.Save("sync/inflight.bin", gated));
+            try
+            {
+                await WithTimeout(gated.Entered.Task);
+                Check(!provider.Exists("sync/inflight.bin"), "Sync final path is invisible during incomplete writes");
+            }
+            finally { gated.Release.Set(); }
+            await write;
+            Check(provider.Exists("sync/inflight.bin") && NoTemps(storage), "Sync final path appears only after completed publication");
+        }
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 8).Select(async i =>
+        {
+            try
+            {
+                using (var input = new MemoryStream(new byte[] { (byte)i }))
+                    if (i % 2 == 0) await Task.Run(() => provider.Save("sync/race.bin", input));
+                    else await provider.SaveAsync("sync/race.bin", input);
+                return true;
+            }
+            catch (IOException) { return false; }
+        }));
+        Check(outcomes.Count(x => x) == 1 && new System.IO.FileInfo(Path.Combine(storage, "sync", "race.bin")).Length == 1 && NoTemps(storage), "Mixed sync/async same-key writers have one complete winner");
+        provider.Delete("sync/content.bin"); provider.Delete("sync/content.bin");
+        Check(!provider.Exists("sync/content.bin"), "Sync physical deletion is idempotent");
+        ThrowsSync<FileNotFoundException>(() => provider.Read("sync/content.bin"));
+    }
+    private static void ThrowsSync<T>(Action action) where T : Exception
+    { try { action(); } catch (T) { return; } throw new Exception("Expected " + typeof(T).Name); }
+    private sealed class NativeGatedStream : GeneratedStream
+    {
+        internal readonly TaskCompletionSource<bool> Entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly ManualResetEventSlim Release = new ManualResetEventSlim();
+        internal NativeGatedStream() : base(1) { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            Entered.TrySetResult(true);
+            if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Native stream gate timeout");
+            return base.Read(buffer, offset, count);
+        }
+        protected override void Dispose(bool disposing) { if (disposing) Release.Dispose(); base.Dispose(disposing); }
+    }
     private static bool NoTemps(string root) { return Directory.GetFiles(root, ".arkyva-*.tmp", SearchOption.AllDirectories).Length == 0; }
     private static async Task WithTimeout(Task task)
     {

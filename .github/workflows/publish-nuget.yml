@@ -7,7 +7,7 @@ on:
         description: 'Canonical SemVer to validate and optionally publish'
         required: true
         type: string
-        default: '1.0.0-preview.3'
+        default: '1.0.0-preview.4'
       publish:
         description: 'Explicit authorization to publish after environment approval (false = validate only)'
         required: true

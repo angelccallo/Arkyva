@@ -1,5 +1,30 @@
 # Targets, dependencias y SqlClient — preview.3
 
+## Actualización preview.4: sin nuevas dependencias
+
+La incorporación de E/S síncrona no cambia los dos targets, drivers, cifrado ni
+referencias NuGet. Los cuatro paquetes incluyen ambas modalidades en las mismas DLL.
+Se compararon consumidores limpios con una única PackageReference Arkyva:
+
+| Métrica | preview.3 net472 | preview.4 net472 |
+| --- | ---: | ---: |
+| Paquetes totales | 4 | 4 |
+| Externos / SQL NuGet / Azure / Identity / Extensions | 0 | 0 |
+| Transitivos (los otros tres paquetes Arkyva) | 3 | 3 |
+| Redirects generados por ese consumidor | 0 | 0 |
+| Advertencias NuGet | 0 | 0 |
+
+El consumidor Standard continúa con 49 paquetes (45 externos), sin cambiar el driver
+6.1.7 ni Pkcs 8.0.2. No extrapolar redirects ni actualizaciones de un consumidor
+vacío a una aplicación WCF con dependencias propias. Los JSON versionados de
+artifacts/dependency-reports conservan el detalle de preview.3 y preview.4.
+
+Open/Execute* síncronos y OpenAsync/Execute*Async comparten comandos, parámetros y
+reglas CAS. La API síncrona es opcional y no obliga a recompilar implementadores de
+las interfaces Async anteriores. No se agrega System.Web/WCF a las librerías, ni
+se sustituyen las operaciones Async por IO síncrona. Las advertencias de seguridad y
+limitaciones del driver heredado expuestas abajo siguen aplicándose sin cambios.
+
 ## Decisión y alcance
 
 Los cuatro paquetes Arkyva, Arkyva.Core, Arkyva.Storage.FileSystem y

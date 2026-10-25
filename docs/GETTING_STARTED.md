@@ -8,11 +8,11 @@ ejecutarlos. Las cuatro bibliotecas incluyen net472 y netstandard2.0. Para las o
 reales se necesitan SQL Server preparado y una ruta local o UNC accesible.
 
 Desde NuGet, instalar únicamente Arkyva. ArkyvaHost se conserva desde preview.2;
-el soporte nativo Framework se incorpora en preview.3. Instalar la nueva versión
+el soporte nativo Framework se incorpora en preview.3 y la API síncrona en preview.4. Instalar la nueva versión
 pública solo después de comprobar su publicación:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.3
+Install-Package Arkyva -Version 1.0.0-preview.4
 ```
 
 Para trabajar con el código de este repositorio, agregar UNA referencia al proyecto de composición:
@@ -28,7 +28,7 @@ código consumidor. El proyecto Arkyva referencia transitivamente Core, FileSyst
 SqlServer. En net472 no incorpora dependencias NuGet externas: usa System.Data del
 Framework. En netstandard2.0 conserva Microsoft.Data.SqlClient 6.1.7 y Pkcs 8.0.2,
 con sus transitivas. Los paquetes locales son solo validación previa; la publicación
-pública de preview.3 es manual y está pendiente. No instalar System.Data.SqlClient
+pública de preview.4 es manual y está pendiente. No instalar System.Data.SqlClient
 como paquete para obtener el proveedor incluido en Framework.
 Véase [PACKAGING.md](PACKAGING.md) para instalación sin referencias a proyectos.
 
@@ -272,6 +272,103 @@ de identidades del despliegue. Véase la [documentación oficial de identidades 
 Usar await en solicitudes asíncronas; no bloquear mediante Result o Wait. El reciclado
 no ejecuta recuperación automática ni elimina contenido. El mantenimiento sigue
 siendo una llamada manual de la aplicación o de su proceso administrativo existente.
+
+## API síncrona nativa y API asíncrona
+
+La configuración de ArkyvaHost y el ciclo de vida no cambian. Después del arranque,
+un endpoint WCF síncrono puede usar directamente la instancia compartida, sin Global,
+HttpContext, otra configuración ni cambios de contrato WCF:
+
+```csharp
+using System;
+using System.IO;
+using Arkyva;
+
+// Dentro del endpoint síncrono existente; validar/autorizar antes la solicitud.
+using (var stream = File.OpenRead("documento.pdf"))
+{
+    Guid fileId = ArkyvaHost.Current.Upload(stream, "documento.pdf");
+    // Asignar fileId a la respuesta del contrato existente.
+}
+```
+
+En un método asíncrono:
+
+```csharp
+using (var stream = File.OpenRead("documento.pdf"))
+{
+    Guid fileId = await ArkyvaHost.Current.UploadAsync(stream, "documento.pdf");
+}
+```
+
+La capacidad ISynchronousArkyvaService ofrece:
+
+```csharp
+Guid Upload(Stream content, string fileName);
+FileContent Download(Guid fileId);
+Arkyva.Core.Models.FileInfo GetInfo(Guid fileId);
+PagedResult<Arkyva.Core.Models.FileInfo> List(FileQuery query);
+bool Exists(Guid fileId);
+void Delete(Guid fileId);
+```
+
+Los tipos son los existentes de Arkyva.Core.Models; GetInfo devuelve null para
+ausentes/no activos. GetInfo/List no abren contenido; Exists comprueba disponibilidad
+y Delete sigue siendo lógico e idempotente. Download exige Active, devuelve Content
+e Info y requiere Dispose/using igual que DownloadAsync:
+
+```csharp
+using (var file = ArkyvaHost.Current.Download(fileId))
+using (var output = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write))
+{
+    file.Content.CopyTo(output);
+}
+```
+
+El llamador conserva la propiedad de la entrada de Upload/UploadAsync. No devolver
+un stream después de cerrar el FileContent propietario. Se conservan las mismas
+excepciones de Arkyva y sus causas internas para diagnóstico protegido. Una carga
+fallida con resultado incierto no se reintenta ciegamente ni borra definitivos.
+
+### Compatibilidad de implementadores
+
+Agregar miembros abstractos a IArkyvaService/IStorageProvider/IMetadataRepository
+habría roto implementaciones personalizadas. Se conservaron esas interfaces y
+IRecoveryMetadataRepository sin modificaciones y se añadieron capacidades opcionales:
+
+- ISynchronousArkyvaService: seis métodos públicos nativos, además del contrato Async.
+- ISynchronousStorageProvider: Save, Read, Exists y Delete.
+- ISynchronousMetadataRepository: Add, Get, List, Exists y Update.
+- ISynchronousRecoveryMetadataRepository: TryRecordUpload, TryActivateRecovered y
+  GetByStorageKey, además de los contratos anteriores de metadatos/recuperación.
+
+ArkyvaService y los proveedores incluidos implementan las capacidades correspondientes.
+Current y Build siguen devolviendo IArkyvaService. El namespace `Arkyva` contiene
+ArkyvaSynchronousExtensions (en Core): únicamente verifica la capacidad y despacha
+a ella. No mantiene estado, no coordina operaciones ni convierte Task a resultado.
+Por eso `using Arkyva` permite `Current.Upload(...)` con la configuración anterior.
+Para reflexión/proxies o tipado explícito consultar ISynchronousArkyvaService; Upload
+no es un miembro añadido por reflexión a la interfaz original IArkyvaService.
+
+Las implementaciones Async anteriores no necesitan nuevos miembros. Para admitir
+la modalidad nativa deben implementar las capacidades con E/S síncrona real; los
+decoradores/proxies también deben exponerlas. Si faltan, se lanza NotSupportedException
+en vez de bloquear Async. Upload verifica almacenamiento, metadatos y cualquier
+capacidad de recibos existente **antes de registrar Pending**, para no omitir evidencia
+ni iniciar una carga incompleta. Puede seguir usando la API Async sin esta capacidad.
+
+Las rutas síncronas usan CopyTo/Flush y ADO.NET Open/ExecuteReader/ExecuteScalar/
+ExecuteNonQuery. Las Async mantienen CopyToAsync/FlushAsync y ADO.NET asíncrono.
+Comparten validaciones, claves, snapshots, comandos/condiciones SQL y parámetros;
+Pending → publicación → recibo → Active y tratamiento de resultados inciertos son
+equivalentes. Se puede subir con una modalidad y leer/eliminar con la otra. La
+recuperación manual sigue siendo RecoverAsync y acepta recibos producidos por ambas.
+
+La E/S síncrona bloquea el hilo de la solicitud, lo esperado en WCF tradicional.
+La Async es recomendable para servidores con mucha concurrencia; no sustituirla
+indiscriminadamente para evitar await. No hay Task.Run, Result, Wait o GetAwaiter
+en las operaciones del producto. La selección SQL, el cifrado y dependencias por
+target de preview.3 se conservan; no se requiere ninguna migración SQL nueva.
 
 ## Operaciones y manejo de streams
 

@@ -7,7 +7,7 @@ content on a local or Windows UNC path. MIT licensed, by Angel Ccallo.
 After the authorized public release is confirmed on NuGet.org, install only the integration package. This version has NOT been published during preparation:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.3 -Source https://api.nuget.org/v3/index.json
+Install-Package Arkyva -Version 1.0.0-preview.4 -Source https://api.nuget.org/v3/index.json
 ```
 
 ```csharp
@@ -29,6 +29,27 @@ once per AppDomain at startup; Current fails before successful configuration and
 duplicate configuration fails. Failed attempts can be retried. IIS recycling creates
 a new domain; no shutdown disposal is required. Use the unchanged ArkyvaBuilder
 for dependency injection, isolated tests or multiple independent instances.
+
+Preview.4 also offers native synchronous I/O for traditional WCF/Framework callers:
+
+```csharp
+using (var stream = File.OpenRead("document.pdf"))
+{
+    Guid id = ArkyvaHost.Current.Upload(stream, "document.pdf");
+}
+```
+
+Download, GetInfo, List, Exists and logical Delete are also available synchronously,
+using the same models, state/receipt guarantees and ownership rules. Dispose every
+downloaded FileContent. Sync blocks the calling thread using native I/O; it never
+blocks an Async task. Prefer Async for scalable concurrent servers.
+
+Existing asynchronous interfaces remain unchanged for third-party implementers.
+Optional ISynchronousArkyvaService, ISynchronousStorageProvider,
+ISynchronousMetadataRepository and ISynchronousRecoveryMetadataRepository provide
+the native methods. With `using Arkyva`, extensions dispatch Current.Upload to the
+native service; unsupported Async-only services/providers fail clearly instead of
+emulating sync. ArkyvaHost configuration/lifetime is unchanged.
 
 From preview.3, NuGet selects net472 assemblies for Framework consumers, with no
 external NuGet dependencies: SQL uses the System.Data.SqlClient included in the

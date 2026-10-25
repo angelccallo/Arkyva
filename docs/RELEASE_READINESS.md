@@ -1,5 +1,36 @@
 # Preparación para publicación — 1.0.0-preview.1
 
+## Actualización Fase 12: 1.0.0-preview.4
+
+API síncrona nativa y Async complementarias en los mismos cuatro paquetes y targets.
+IArkyvaService/IStorageProvider/IMetadataRepository/IRecoveryMetadataRepository se
+conservan para implementadores existentes; las nuevas capacidades y extensiones de
+dispatch son aditivas. Current, Build y la configuración no cambian.
+
+- Release de ambos targets sin errores/advertencias. Guardia de código de producto
+  sin Task.Run, Result, Wait o GetAwaiter y sin llamadas Async en archivos síncronos.
+- 319 comprobaciones nativas y 317 con ensamblados Standard en las seis suites con
+  SQL LocalDB/FileSystem reales; 31 comprobaciones internas del consumidor NuGet.
+  Misma cobertura en dos compilaciones, no 636 escenarios distintos.
+- Cobertura nueva: EOF/hash, temporales, entradas inválidas, fallos antes/después de
+  publicación/recibo/activación, resultados SQL inciertos, colisiones, cargas síncronas
+  y mixtas concurrentes, CAS, recuperación de ambas modalidades y ownership de streams.
+- Superficie pública comparada entre targets y preservación aditiva de preview.3:
+  sin miembros anteriores eliminados/cambiados. Las interfaces Async originales no
+  requieren nuevos miembros; se prueba también un implementador exclusivamente Async.
+- Dependencias sin aumento: net472 cuatro paquetes Arkyva, cero externos/redirects;
+  consumidor Standard 49 paquetes/45 externos. Ambos consumidores usan PackageReference
+  al feed local, sin referencias fuente. Cifrado/driver por target y SQL sin cambios.
+- Auditoría y 28 controles de publicación satisfactorios. No se auditó el estado de
+  parches del SO/Framework mediante NuGet. Los paquetes locales no sustituyen el
+  candidato del futuro commit de main validado en CI.
+
+Entorno de ejecución: Framework 4.8.09032 con target net472; no runtime 4.7.2 aislado,
+IIS/WCF desplegado, SMB ni TLS remoto de producción. La E/S síncrona ocupa el hilo;
+Async sigue recomendada para escalabilidad. La recuperación continúa siendo manual
+mediante RecoverAsync. No se publican paquetes ni se ejecutan operaciones Git de
+escritura en esta fase. Ver GETTING_STARTED.md y CHANGELOG.md.
+
 ## Actualización Fase 11: 1.0.0-preview.3
 
 Los cuatro paquetes ofrecen lib/net472 y lib/netstandard2.0, con grupos de dependencias
