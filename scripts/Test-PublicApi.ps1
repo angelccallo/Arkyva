@@ -1,4 +1,4 @@
-param([string]$BaselineDirectory, [string]$DependencyDirectory)
+param([string]$BaselineDirectory, [string]$DependencyDirectory, [switch]$AllowAdditions)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 if (-not $DependencyDirectory) {
@@ -57,7 +57,9 @@ foreach ($id in @('Arkyva', 'Arkyva.Core', 'Arkyva.Storage.FileSystem', 'Arkyva.
     if (@(Compare-Object $native $standard).Count -ne 0) { throw "Public API differs between targets: $id" }
     if ($BaselineDirectory) {
         $baseline = Read-IsolatedApi (Join-Path ([IO.Path]::GetFullPath($BaselineDirectory)) "$id.dll")
-        if (@(Compare-Object $baseline $standard).Count -ne 0) { throw "Public API changed from baseline: $id" }
+        $differences = @(Compare-Object $baseline $standard)
+        if ($AllowAdditions) { $differences = @($differences | Where-Object { $_.SideIndicator -eq '<=' }) }
+        if ($differences.Count -ne 0) { throw "Public API removed or changed from baseline: $id" }
     }
-    Write-Output "PASS: public API identical across targets$(if ($BaselineDirectory) { ' and preview.2 baseline' }): $id"
+    Write-Output "PASS: public API identical across targets$(if ($BaselineDirectory) { '; baseline preserved' }): $id"
 }

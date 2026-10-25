@@ -5,7 +5,7 @@ GUID, con metadatos técnicos en SQL Server y contenido en FileSystem local o UN
 El consumidor configura el repositorio una vez y utiliza una API asíncrona sin
 administrar rutas internas ni tablas. Licencia [MIT](LICENSE).
 
-Estado del código: **1.0.0-preview.3 en preparación**, incorpora compilaciones nativas net472.
+Estado del código: **1.0.0-preview.4 en preparación**, incorpora E/S síncrona nativa además de la API Async.
 La nueva versión aún no se publica desde este repositorio de trabajo.
 Véase [CHANGELOG.md](CHANGELOG.md) para los cambios de esta versión.
 Consultar [el informe de preparación](docs/RELEASE_READINESS.md) para resultados,
@@ -25,13 +25,13 @@ cada configuración de IIS. Build no conecta SQL ni aplica migraciones.
 
 ## Distribución pública mediante NuGet.org
 
-La publicación de preview.3 se ejecutará manualmente desde GitHub Actions con OIDC,
+La publicación de preview.4 se ejecutará manualmente desde GitHub Actions con OIDC,
 según [NUGET_PUBLISHING.md](docs/NUGET_PUBLISHING.md).
 **Después de confirmar que la versión existe en NuGet.org**, instalar en una
 aplicación compatible:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.3 -Source https://api.nuget.org/v3/index.json
+Install-Package Arkyva -Version 1.0.0-preview.4 -Source https://api.nuget.org/v3/index.json
 ```
 
 En Visual Studio habilitar **Include prerelease**. El paquete principal resuelve
@@ -55,6 +55,37 @@ El feed local se usa solo para pruebas previas a la publicación; su procedimien
 está en [PACKAGING.md](docs/PACKAGING.md). No es la distribución pública oficial.
 
 ## Inicio rápido
+
+Configurar una vez como antes. Después se puede elegir una modalidad por operación:
+
+```csharp
+using Arkyva;
+
+// Endpoint síncrono tradicional (por ejemplo, WCF):
+using (var stream = File.OpenRead("documento.pdf"))
+{
+    Guid id = ArkyvaHost.Current.Upload(stream, "documento.pdf");
+}
+
+// Método asíncrono:
+using (var stream = File.OpenRead("documento.pdf"))
+{
+    Guid id = await ArkyvaHost.Current.UploadAsync(stream, "documento.pdf");
+}
+```
+
+Ambas modalidades preservan claves, estados, SHA-256, publicación temporal y revisión
+SQL. La síncrona utiliza E/S síncrona y ocupa el hilo mientras trabaja; no bloquea
+Tasks para llamar Async. La asíncrona conserva E/S asíncrona y se recomienda cuando
+la escalabilidad de servidores bajo concurrencia es prioritaria. No usar la síncrona
+indiscriminadamente para evitar await en aplicaciones web modernas.
+
+Compatibilidad: IArkyvaService conserva sus seis miembros Async para no romper
+implementadores existentes. Las operaciones nativas se declaran en
+ISynchronousArkyvaService; con `using Arkyva`, las extensiones permiten invocarlas
+directamente sobre Current sin cambiar el host ni su tipo. Un servicio/proveedor
+personalizado solo Async sigue funcionando; su uso síncrono no soportado falla
+claramente sin simularlo con tareas. Véase [las dos modalidades y sus contratos](docs/GETTING_STARTED.md#api-síncrona-nativa-y-api-asíncrona).
 
 Para una aplicación con una sola configuración, inicializar una vez al arrancar:
 

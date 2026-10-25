@@ -11,7 +11,7 @@ using FileInfo = Arkyva.Core.Models.FileInfo;
 namespace Arkyva.Core.Services
 {
     /// <summary>Coordinates metadata and physical storage without distributed transactions or physical cleanup.</summary>
-    public sealed class ArkyvaService : IArkyvaService
+    public sealed partial class ArkyvaService : ISynchronousArkyvaService
     {
         private readonly IStorageProvider storage;
         private readonly IMetadataRepository metadata;
@@ -30,18 +30,8 @@ namespace Arkyva.Core.Services
         /// <summary>Registers Pending, streams content once, then activates with the actual transferred size. Leaves input open.</summary>
         public async Task<Guid> UploadAsync(Stream content, string fileName)
         {
-            if (content == null) throw new ArgumentNullException(nameof(content));
-            if (!content.CanRead) throw new ArgumentException("A readable stream is required.", nameof(content));
-            string extension = ValidateName(fileName);
-            Guid id = Guid.NewGuid();
-            DateTime created = DateTime.UtcNow;
-            var pending = new FileMetadata
-            {
-                FileId = id, OriginalName = fileName, Extension = extension,
-                MimeType = "application/octet-stream", SizeBytes = 0,
-                ProviderId = providerId, StorageKey = created.ToString("yyyy/MM/", CultureInfo.InvariantCulture) + id.ToString("N") + ".bin",
-                Status = FileStatus.Pending, CreatedUtc = created
-            };
+            var pending = CreatePending(content, fileName);
+            Guid id = pending.FileId;
             try { await metadata.AddAsync(pending).ConfigureAwait(false); }
             catch (Exception error) { throw new ArkyvaMetadataException("Could not register the upload; its result may be uncertain.", id, error); }
 
@@ -56,7 +46,7 @@ namespace Arkyva.Core.Services
                 }
                 catch (Exception error)
                 {
-                    var failed = Copy(pending); failed.Status = FileStatus.Failed;
+                    var failed = FailedSnapshot(pending);
                     Exception cause = error;
                     try { await metadata.UpdateAsync(failed).ConfigureAwait(false); }
                     catch (Exception stateError) { cause = new AggregateException(error, stateError); }
@@ -77,7 +67,7 @@ namespace Arkyva.Core.Services
                 catch (Exception error)
                 { throw new ArkyvaMetadataException("Could not confirm the upload receipt; its result may be uncertain.", id, error); }
             }
-            var active = Copy(pending); active.Status = FileStatus.Active; active.SizeBytes = size;
+            var active = ActiveSnapshot(pending, size);
             try { await metadata.UpdateAsync(active).ConfigureAwait(false); }
             catch (Exception error)
             {
@@ -92,10 +82,8 @@ namespace Arkyva.Core.Services
         public async Task<FileContent> DownloadAsync(Guid fileId)
         {
             ValidateId(fileId);
-            FileMetadata record = await GetRecord(fileId).ConfigureAwait(false);
-            if (record == null) throw new ArkyvaFileNotFoundException(fileId);
-            if (record.Status != FileStatus.Active || record.ProviderId != providerId)
-                throw new ArkyvaFileUnavailableException(fileId, record.Status);
+            FileMetadata record = await GetRecordAsync(fileId).ConfigureAwait(false);
+            EnsureDownloadAvailable(record, fileId);
             Stream stream;
             try { stream = await storage.ReadAsync(record.StorageKey).ConfigureAwait(false); }
             catch (FileNotFoundException error) { throw new ArkyvaFileNotFoundException(fileId, error); }
@@ -109,30 +97,25 @@ namespace Arkyva.Core.Services
         public async Task<FileInfo> GetInfoAsync(Guid fileId)
         {
             ValidateId(fileId);
-            FileMetadata record = await GetRecord(fileId).ConfigureAwait(false);
+            FileMetadata record = await GetRecordAsync(fileId).ConfigureAwait(false);
             return record == null || record.Status != FileStatus.Active ? null : PublicInfo(record);
         }
 
         /// <summary>Returns a bounded page of public metadata. Active by default; explicit states, including null for all, are supported.</summary>
         public async Task<PagedResult<FileInfo>> ListAsync(FileQuery query)
         {
-            if (query == null) throw new ArgumentNullException(nameof(query));
-            // Validate the snapshot actually passed to deferred provider work.
-            var snapshot = new FileQuery { PageNumber = query.PageNumber, PageSize = query.PageSize,
-                FileId = query.FileId, Status = query.Status, OriginalName = query.OriginalName,
-                Extension = query.Extension, CreatedFromUtc = query.CreatedFromUtc, CreatedBeforeUtc = query.CreatedBeforeUtc };
-            ValidateQuery(snapshot);
+            var snapshot = QuerySnapshot(query);
             PagedResult<FileMetadata> page;
             try { page = await metadata.ListAsync(snapshot).ConfigureAwait(false); }
             catch (Exception error) { throw new ArkyvaMetadataException("Could not list file metadata.", null, error); }
-            return new PagedResult<FileInfo> { TotalCount = page.TotalCount, Items = page.Items.Select(PublicInfo).ToArray() };
+            return PublicPage(page);
         }
 
         /// <summary>Checks Active metadata, provider identity and physical existence. Availability may change immediately afterward.</summary>
         public async Task<bool> ExistsAsync(Guid fileId)
         {
             ValidateId(fileId);
-            FileMetadata record = await GetRecord(fileId).ConfigureAwait(false);
+            FileMetadata record = await GetRecordAsync(fileId).ConfigureAwait(false);
             if (record == null || record.Status != FileStatus.Active || record.ProviderId != providerId) return false;
             try { return await storage.ExistsAsync(record.StorageKey).ConfigureAwait(false); }
             catch (Exception error) { throw new ArkyvaStorageException("Could not verify content availability.", fileId, error); }
@@ -142,12 +125,9 @@ namespace Arkyva.Core.Services
         public async Task DeleteAsync(Guid fileId)
         {
             ValidateId(fileId);
-            FileMetadata record = await GetRecord(fileId).ConfigureAwait(false);
+            FileMetadata record = await GetRecordAsync(fileId).ConfigureAwait(false);
             if (record == null || record.Status == FileStatus.Deleted) return;
-            if (!Enum.IsDefined(typeof(FileStatus), record.Status)) throw new ArkyvaFileUnavailableException(fileId, record.Status);
-            var deleted = Copy(record); deleted.Status = FileStatus.Deleted;
-            DateTime now = DateTime.UtcNow;
-            deleted.DeletedUtc = now < record.CreatedUtc ? record.CreatedUtc : now;
+            var deleted = DeletedSnapshot(record);
             try { await metadata.UpdateAsync(deleted).ConfigureAwait(false); }
             catch (Exception error)
             {
@@ -163,11 +143,65 @@ namespace Arkyva.Core.Services
             }
         }
 
-        private async Task<FileMetadata> GetRecord(Guid id)
+        private async Task<FileMetadata> GetRecordAsync(Guid id)
         {
             try { return await metadata.GetAsync(id).ConfigureAwait(false); }
             catch (Exception error) { throw new ArkyvaMetadataException("Could not read file metadata.", id, error); }
         }
+
+
+        private FileMetadata CreatePending(Stream content, string fileName)
+        {
+            if (content == null) throw new ArgumentNullException(nameof(content));
+            if (!content.CanRead) throw new ArgumentException("A readable stream is required.", nameof(content));
+            string extension = ValidateName(fileName);
+            Guid id = Guid.NewGuid();
+            DateTime created = DateTime.UtcNow;
+            var pending = new FileMetadata
+            {
+                FileId = id, OriginalName = fileName, Extension = extension,
+                MimeType = "application/octet-stream", SizeBytes = 0,
+                ProviderId = providerId, StorageKey = created.ToString("yyyy/MM/", CultureInfo.InvariantCulture) + id.ToString("N") + ".bin",
+                Status = FileStatus.Pending, CreatedUtc = created
+            };
+            return pending;
+        }
+
+        private static FileMetadata FailedSnapshot(FileMetadata pending)
+        { var failed = Copy(pending); failed.Status = FileStatus.Failed; return failed; }
+
+        private static FileMetadata ActiveSnapshot(FileMetadata pending, long size)
+        { var active = Copy(pending); active.Status = FileStatus.Active; active.SizeBytes = size; return active; }
+
+        private static FileMetadata DeletedSnapshot(FileMetadata record)
+        {
+            if (!Enum.IsDefined(typeof(FileStatus), record.Status)) throw new ArkyvaFileUnavailableException(record.FileId, record.Status);
+            var deleted = Copy(record); deleted.Status = FileStatus.Deleted;
+            DateTime now = DateTime.UtcNow;
+            deleted.DeletedUtc = now < record.CreatedUtc ? record.CreatedUtc : now;
+            return deleted;
+        }
+
+        private void EnsureDownloadAvailable(FileMetadata record, Guid fileId)
+        {
+            if (record == null) throw new ArkyvaFileNotFoundException(fileId);
+            if (record.Status != FileStatus.Active || record.ProviderId != providerId)
+                throw new ArkyvaFileUnavailableException(fileId, record.Status);
+        }
+
+        private static FileQuery QuerySnapshot(FileQuery query)
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            // Validate the snapshot actually passed to deferred provider work.
+            var snapshot = new FileQuery { PageNumber = query.PageNumber, PageSize = query.PageSize,
+                FileId = query.FileId, Status = query.Status, OriginalName = query.OriginalName,
+                Extension = query.Extension, CreatedFromUtc = query.CreatedFromUtc, CreatedBeforeUtc = query.CreatedBeforeUtc };
+            ValidateQuery(snapshot);
+            return snapshot;
+        }
+
+        private static PagedResult<FileInfo> PublicPage(PagedResult<FileMetadata> page)
+        { return new PagedResult<FileInfo> { TotalCount = page.TotalCount, Items = page.Items.Select(PublicInfo).ToArray() }; }
 
         private static FileInfo PublicInfo(FileMetadata source)
         {

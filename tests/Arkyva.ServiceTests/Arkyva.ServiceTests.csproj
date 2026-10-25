@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Arkyva.Core/Arkyva.Core.csproj" />
+    <ProjectReference Include="../../src/Arkyva.Storage.FileSystem/Arkyva.Storage.FileSystem.csproj" />
   </ItemGroup>
 </Project>

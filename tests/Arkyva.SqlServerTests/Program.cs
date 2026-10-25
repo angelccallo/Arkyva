@@ -18,7 +18,7 @@ using Microsoft.Data.SqlClient;
 using System.Data.SqlClient;
 #endif
 
-internal static class Program
+internal static partial class Program
 {
     private static int checks;
     private static readonly DateTime Created = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddTicks(1234567);
@@ -169,6 +169,7 @@ internal static class Program
                         transaction.Rollback();
                     }
                     await RepositoryChecks(builder.ConnectionString, databaseConnection);
+                    await SynchronousRepositoryChecks(builder.ConnectionString);
                     await EndToEndChecks(builder.ConnectionString);
                     await InstalledPackageChecks(builder.ConnectionString);
                 }
@@ -353,6 +354,7 @@ internal static class Program
             Check((await recovery.RecoverAsync(new RecoveryOptions { DryRun = false, InspectStorage = false })).RecordsRecovered == 0,
                 "Real recovery repeated safely");
             await service.DeleteAsync(interrupted.FileId);
+            await SynchronousEndToEndChecks(service, repository, root);
         }
         finally
         {

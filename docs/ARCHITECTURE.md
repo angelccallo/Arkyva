@@ -2,6 +2,35 @@
 
 ## Alcance y dependencias
 
+Desde preview.4 (Fase 12) hay rutas de E/S síncrona y asíncrona complementarias.
+Para no añadir miembros abstractos a interfaces publicadas, las interfaces Async
+permanecen intactas. ISynchronousArkyvaService y las capacidades síncronas de storage,
+metadata y recovery heredan los contratos existentes y añaden métodos nativos.
+ArkyvaService/proveedores incluidos implementan ambas modalidades. Las extensiones
+del namespace Arkyva en Core solo despachan la capacidad: Current y Build conservan
+IArkyvaService, sin cambiar configuración, host, modelos o ciclo de vida.
+
+Las clases parciales .Synchronous.cs usan CopyTo/Flush y ADO.NET Open/Execute*.
+No llaman Async ni bloquean tareas. Las implementaciones Async mantienen sus awaits
+y APIs asíncronas. Comparten CreatePending (GUID/UTC/clave), validación, snapshots de
+estados, mapeo de páginas y construcción de comandos SQL/parametrización. La
+orquestación separada conserva los mismos puntos de fallo, recibo y CAS; no existe
+una ruta simplificada que active contenido incompleto o elimine definitivos inciertos.
+FileSystem comparte resolución/validación, preparación de destino, publicación por
+rename sin reemplazo y limpieza conservadora de su temporal exclusivo.
+
+Upload nativo verifica las capacidades necesarias antes de registrar Pending, incluida
+la capacidad nativa de recibos cuando el repositorio ya declara recuperación Async.
+No hay fallback a bloqueo de tareas para proveedores personalizados. Los consumidores
+de implementaciones anteriores continúan con Async; para sync declaran explícitamente
+las interfaces opcionales, también en decoradores/proxies. Ver GETTING_STARTED.md.
+
+RecoverAsync sigue siendo manual y no se amplía con otro servicio: ambos uploads
+producen evidencias indistinguibles y la misma recuperación verificada las reconoce.
+Los métodos síncronos ocupan el hilo durante la E/S; Async sigue siendo la opción
+para priorizar escalabilidad bajo concurrencia. Se conserva la selección de driver
+por target y toda la política de cifrado de preview.3. No hay migraciones nuevas.
+
 Desde preview.3 (Fase 11) las cuatro bibliotecas compilan para net472 y netstandard2.0.
 Las descripciones por fase de abajo conservan sus decisiones históricas. La API,
 dependencias entre proyectos y ciclo de vida de ArkyvaHost permanecen iguales.

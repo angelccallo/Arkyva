@@ -1,11 +1,11 @@
 > Este documento describe validación local previa. La distribución oficial será
-> NuGet.org mediante el [procedimiento OIDC](NUGET_PUBLISHING.md); preview.3 aún no se publicó.
+> NuGet.org mediante el [procedimiento OIDC](NUGET_PUBLISHING.md); preview.4 aún no se publicó.
 
 # Empaquetado y validación local
 
 ## Paquetes y procedencia de metadatos
 
-Todos usan 1.0.0-preview.3 con net472 y netstandard2.0. src/Directory.Build.props centraliza
+Todos usan 1.0.0-preview.4 con net472 y netstandard2.0. src/Directory.Build.props centraliza
 versión, autor, licencia y repositorio solo para bibliotecas. Authors es Angel Ccallo
 (obtenido de git log), copyright angelccallo de LICENSE y RepositoryUrl procede de
 origin: https://github.com/angelccallo/Arkyva. No se modificó la licencia MIT.
@@ -90,9 +90,9 @@ Crear un NuGet.Config del consumidor con la ruta absoluta a artifacts/packages:
 Después instalar únicamente Arkyva:
 
 ```powershell
-Install-Package Arkyva -Version 1.0.0-preview.3
+Install-Package Arkyva -Version 1.0.0-preview.4
 # O desde una consola, en un proyecto net472:
-dotnet add package Arkyva --version 1.0.0-preview.3
+dotnet add package Arkyva --version 1.0.0-preview.4
 ```
 
 Conservar NuGet.org para resolver dependencias externas y un cliente NuGet compatible

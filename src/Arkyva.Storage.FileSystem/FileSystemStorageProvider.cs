@@ -10,7 +10,7 @@ namespace Arkyva.Storage.FileSystem
 {
     /// <summary>Stores streamed content below a local or UNC directory without replacing existing files.</summary>
     /// <remarks>The repository tree must be protected against external changes to links and directories.</remarks>
-    public sealed class FileSystemStorageProvider : IStorageProvider, IStorageDiagnostics
+    public sealed partial class FileSystemStorageProvider : ISynchronousStorageProvider, IStorageDiagnostics
     {
         private const int BufferSize = 81920;
         private const string TemporaryPrefix = ".arkyva-";
@@ -45,12 +45,8 @@ namespace Arkyva.Storage.FileSystem
         /// <exception cref="IOException">The destination exists or an I/O operation fails.</exception>
         public async Task SaveAsync(string key, Stream content)
         {
-            if (content == null) throw new ArgumentNullException(nameof(content));
-            if (!content.CanRead) throw new ArgumentException("A readable stream is required.", nameof(content));
-            string destination = Resolve(key);
+            string destination = PrepareDestination(key, content);
             string directory = Path.GetDirectoryName(destination);
-            Directory.CreateDirectory(directory);
-            RejectLinks(destination);
             string temporary = Path.Combine(directory, TemporaryPrefix + Guid.NewGuid().ToString("N") + ".tmp");
             bool ownsTemporary = false;
             try
@@ -62,9 +58,7 @@ namespace Arkyva.Storage.FileSystem
                     await content.CopyToAsync(output, BufferSize).ConfigureAwait(false);
                     await output.FlushAsync().ConfigureAwait(false);
                 }
-                RejectLinks(destination);
-                // Same-directory rename; the filesystem arbitrates conflicts across processes.
-                File.Move(temporary, destination);
+                Publish(temporary, destination);
                 ownsTemporary = false;
             }
             finally
@@ -72,9 +66,7 @@ namespace Arkyva.Storage.FileSystem
                 if (ownsTemporary)
                 {
                     // Cleanup is best effort and must not mask the original failure.
-                    try { File.Delete(temporary); }
-                    catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
+                    CleanupTemporary(temporary);
                 }
             }
         }

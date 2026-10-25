@@ -1,4 +1,4 @@
-param([string]$Version = '1.0.0-preview.3', [switch]$InspectOnly, [string]$ExpectedRepositoryCommit)
+param([string]$Version = '1.0.0-preview.4', [switch]$InspectOnly, [string]$ExpectedRepositoryCommit)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $feed = Join-Path $repo 'artifacts/packages'
@@ -113,6 +113,7 @@ using System.Threading.Tasks;
 using Arkyva;
 using Arkyva.Core.Interfaces;
 public static class StandardConsumer {
+    public static Guid UploadSync(Stream content) => ArkyvaHost.Current.Upload(content, "standard.bin");
     public static IArkyvaService Build(string sql, string path) => ArkyvaBuilder.Create().UseSqlServer(sql).UseFileSystem(path).Build();
     public static async Task<Guid> Upload(Stream content) => await ArkyvaHost.Current.UploadAsync(content, "standard.bin");
 }

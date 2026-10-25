@@ -1,5 +1,25 @@
 # Publicación oficial de Arkyva en NuGet.org
 
+## Próxima versión: 1.0.0-preview.4 (Fase 12)
+
+Los cuatro paquetes conservan net472/netstandard2.0 y las dependencias de preview.3.
+Las APIs nativas síncronas se agregan sin modificar las interfaces Async existentes:
+ver GETTING_STARTED.md para capacidades opcionales, dispatch y uso WCF.
+No hay cambios de host, seguridad SQL, esquema ni formato físico.
+
+La versión default del workflow es preview.4; siguen intactos workflow_dispatch,
+main, environment protegido y NuGet/login OIDC con credencial temporal. Tras commit,
+PR y revisión autorizados, validar con version=1.0.0-preview.4, publish=false,
+allow_existing_ids=true solo después de confirmar propiedad y allow_stable=false.
+Publicar únicamente con autorización explícita y revisión del candidato. No hubo
+login ni push en esta fase. Los apartados de versiones previas son históricos.
+
+Validate-Packages incluye Test-NativeIO.ps1 (rechaza sync-over-async en producto),
+las suites de ambos targets, comparación de superficie, auditoría y consumidores
+NuGet net472/Standard con llamadas Upload y UploadAsync. Test-PublicApi admite
+-AllowAdditions para comparar una baseline anterior sin permitir eliminaciones.
+SQL externo sigue siendo un job de CI opt-in protegido; no se agregan secretos.
+
 ## Próxima versión: 1.0.0-preview.3 (Fase 11)
 
 Cuatro paquetes multitarget net472/netstandard2.0; API y ArkyvaHost conservados.

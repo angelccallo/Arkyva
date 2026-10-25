@@ -1,4 +1,4 @@
-param([string]$Version = '1.0.0-preview.3', [switch]$AllowStable)
+param([string]$Version = '1.0.0-preview.4', [switch]$AllowStable)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'NuGetPublishing.psm1') -Force
 Assert-ReleaseVersion -Version $Version -AllowStable:$AllowStable
@@ -8,6 +8,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release restore failed.' }
 & dotnet build (Join-Path $repo 'Arkyva.sln') -c Release --no-restore -warnaserror "-p:Version=$Version"
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 & (Join-Path $PSScriptRoot 'Audit.ps1')
+& (Join-Path $PSScriptRoot 'Test-NativeIO.ps1')
 & (Join-Path $PSScriptRoot 'Test-Publishing.ps1')
 & (Join-Path $PSScriptRoot 'Test.ps1')
 & (Join-Path $PSScriptRoot 'Test-NetStandard.ps1')

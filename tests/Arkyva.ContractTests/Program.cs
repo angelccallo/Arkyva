@@ -31,6 +31,11 @@ internal static class Program
                 typeof(IStorageDiagnostics).GetMethod("InspectAsync").ReturnType == typeof(Task<StorageInventory>), "Capacidades de recuperación asíncronas");
             Check(!typeof(Arkyva.Core.Models.FileInfo).GetProperties().Any(p => p.Name == "CompletionSha256" || p.Name == "Revision"), "Recibo y revisión encapsulados");
             Check(new FileMetadata().Status == FileStatus.Pending, "Estado inicial no publicado");
+            Check(typeof(ISynchronousArkyvaService).GetMethod("Upload").ReturnType == typeof(Guid) &&
+                typeof(ISynchronousArkyvaService).GetMethod("Download").ReturnType == typeof(FileContent), "Optional synchronous service uses the existing models");
+            Check(typeof(ISynchronousStorageProvider).GetMethod("Save").ReturnType == typeof(void) &&
+                typeof(ISynchronousRecoveryMetadataRepository).GetMethod("TryRecordUpload").ReturnType == typeof(bool), "Optional synchronous storage and durable metadata contracts");
+            Check(typeof(Arkyva.ArkyvaSynchronousExtensions).GetMethod("Upload").IsStatic, "Current exposes native sync dispatch without changing IArkyvaService");
             Check(new FileQuery().PageNumber == 1 && new FileQuery().PageSize > 0, "Paginacion inicial valida");
             Check(new PagedResult<FileMetadata>().Items.Count == 0, "Pagina inicial vacia");
             Console.WriteLine("Todas las comprobaciones de contratos pasaron en .NET Framework 4.7.2.");
